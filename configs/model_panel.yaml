@@ -1,19 +1,20 @@
-# Proposed September 2026 panel. Verify API availability and freeze exact IDs
-# immediately before protocol lock; do not silently substitute after target calls.
-# `frozen: false` is intentional until credentials/endpoints are dry-run tested.
+# Proposed September 2026 panel. Exact IDs were checked against current vendor
+# documentation on 2026-09-04. Dry-run every credential/endpoint before freezing.
+#
+# There are TWO locks:
+# - authoring_frozen: lock perturbation author + prompt before the full draft reservoir;
+# - frozen: lock targets + judges before any primary target-model call.
 
+authoring_frozen: false
 frozen: false
-verified_on: "2026-09-03"
+verified_on: "2026-09-04"
 
-# Draft authoring is construction only and has zero evidentiary status.
-# It is deliberately not one of the primary judge model IDs.
 authoring_model:
   provider: openai
   model: gpt-5.6-luna
   reasoning_effort: medium
   role: perturbation_draft_author_only
 
-# Primary evaluated systems: one frontier general-purpose model per provider.
 target_models:
   - target_id: openai_gpt56_sol
     provider: openai
@@ -36,9 +37,6 @@ target_models:
     reasoning_effort: medium
     tools: disabled
 
-# Three primary automated judges. They are provider-diverse and all operate in
-# blinded mode for headline analyses. Self/family preference is modeled explicitly
-# because three judge providers also have a target system in the study.
 primary_judges:
   - judge_id: anthropic_opus5_blinded
     provider: anthropic
@@ -56,10 +54,6 @@ primary_judges:
     mode: blinded
     reasoning_effort: high
 
-# OpenAI is held out of the primary judge trio because an OpenAI model is used for
-# perturbation drafting. It can be added as a prespecified sensitivity judge only
-# after the primary analysis is frozen, or the draft author can be moved to a fifth
-# provider before lock if four-way judge symmetry is desired.
 secondary_judges:
   - judge_id: openai_gpt56_sol_blinded_sensitivity
     provider: openai
@@ -84,4 +78,17 @@ secondary_judges:
 
 inference_policy:
   temperature: null
-  note: "Use each provider's deterministic/recommended reasoning interface; record every request parameter and provider-reported model identifier. No web/search/tools."
+  tools: disabled
+  max_attempts: 4
+  retry_backoff_seconds: 1.0
+  timeout_seconds: 180
+  author_max_output_tokens: 4500
+  target_max_output_tokens: 3500
+  judge_max_output_tokens: 2500
+  judge_format_attempts: 2
+  note: >-
+    OpenAI and xAI use their Responses APIs; Anthropic uses Messages; Google uses
+    generateContent. Reasoning effort is passed exactly where independently
+    verified. Google is intentionally provider_default. Every call records a
+    request hash, configured and provider-resolved model, endpoint, HTTP status,
+    attempt count, timing, and usage. No web/search/tools are enabled.
