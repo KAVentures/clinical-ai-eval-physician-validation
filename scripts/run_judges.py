@@ -95,7 +95,32 @@ def main() -> None:
     for u in units:
         response_id = str(u["response_id_internal"])
         eid = f"{response_id}::{judge['judge_id']}"
-        if eid in records and records[eid].get("status") == "ok":
+        if eid in records and records[eid].get("status") in {"ok", "not_scored_target_output_failure"}:
+            continue
+
+        if str(u.get("target_status_internal", "ok")) != "ok":
+            records[eid] = {
+                "judge_evaluation_id": eid,
+                "review_unit_id": u["review_unit_id"],
+                "response_id": response_id,
+                "case_id": u["case_id_internal"],
+                "source_id": u["source_id_internal"],
+                "presentation": u["presentation_internal"],
+                "primary_family": u["primary_family_internal"],
+                "target_id": u["target_id_internal"],
+                "target_provider": u.get("target_provider_internal", ""),
+                "same_provider_target_judge": bool(u.get("target_provider_internal") == judge["provider"]),
+                "judge_id": judge["judge_id"],
+                "judge_provider": judge["provider"],
+                "judge_model": judge["model"],
+                "judge_mode": "blinded",
+                "judge_reasoning_effort": judge.get("reasoning_effort", "provider_default"),
+                "score": None,
+                "status": "not_scored_target_output_failure",
+                "parse_error": "",
+                "provider_meta": {},
+            }
+            print(eid, "not_scored_target_output_failure")
             continue
 
         text, api_status, meta = call_provider(
