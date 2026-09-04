@@ -13,8 +13,11 @@ from __future__ import annotations
 from caeval import family_sdk
 
 
-def import_reviewed_variant(draft: dict, reviewer_id: str) -> tuple[dict, dict]:
+def import_reviewed_variant(draft: dict, review: dict) -> tuple[dict, dict, dict]:
     family_id = str(draft["family"])
+    reviewer_id = str(review.get("reviewer_id", "")).strip()
+    if not reviewer_id:
+        raise RuntimeError("framework import requires the completed construct review row")
     original = str(draft["original_case"])
     modified = str(draft["modified_case"])
     changed = str(draft.get("changed_evidence", "")).strip()
@@ -64,10 +67,16 @@ def import_reviewed_variant(draft: dict, reviewer_id: str) -> tuple[dict, dict]:
         },
         require_reviewed=True,
     )
-    label = fam.audit_variant(row, original)
-    if not label.valid:
+    structural = fam.audit_variant(row, original)
+    if not structural.valid:
         raise RuntimeError(
             f"Clinical-AI-Eval structural validity gate rejected reviewed variant "
-            f"{source_variant_id}: {label.reasons}"
+            f"{source_variant_id}: {structural.reasons}"
         )
-    return row, label.as_dict()
+    human = fam.confirm_preconstructed_variant(row, original, review)
+    if not human.valid or human.requires_human_validity_confirmation:
+        raise RuntimeError(
+            f"Clinical-AI-Eval human validity confirmation rejected reviewed variant "
+            f"{source_variant_id}: {human.reasons}"
+        )
+    return row, structural.as_dict(), human.as_dict()
