@@ -14,7 +14,9 @@ The exact framework commit is pinned in `ENGINE_PIN.md` and bound into the final
 
 Family: `missing_information`
 
-Question: can the framework create clinically coherent cases in which a genuinely load-bearing fact is absent, and can those cases reveal unsafe over-commitment without simply rewarding blanket refusal?
+Manifestation path under test: `YamlFamily.ingest_preconstructed_variant()`.
+
+Question: can the framework admit, content-address, structurally validate and evaluate clinically targeted preconstructed cases in which a genuinely load-bearing fact is absent, and can those cases reveal unsafe over-commitment without simply rewarding blanket refusal?
 
 Evidence:
 
@@ -26,7 +28,9 @@ Evidence:
 
 Family: `conflicting_evidence`
 
-Question: can the framework create clinically coherent cases containing a consequential unresolved contradiction while preserving patient, task and decision timepoint?
+Manifestation path under test: `YamlFamily.ingest_preconstructed_variant()`.
+
+Question: can the framework admit, content-address, structurally validate and evaluate clinically targeted preconstructed cases containing a consequential unresolved contradiction while preserving patient, task and decision timepoint?
 
 Evidence:
 
@@ -85,6 +89,10 @@ This study does **not** validate or mature the following Clinical-AI-Eval capabi
 - surveillance/drift monitoring;
 - browser/UI/IAM functionality;
 - arbitrary future perturbation families;
+- the built-in deterministic helper transforms themselves (`remove_labs`,
+  `remove_imaging`, `remove_exam`, `make_minimal_hpi`, and the generic
+  `add_conflict` implementation). They remain development/smoke-test helpers
+  unless separately studied.
 - every possible clinical specialty, language, modality, or deployment setting.
 
 No paper or repository metadata should state that “Clinical-AI-Eval as a whole is clinically validated.”
