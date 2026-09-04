@@ -236,7 +236,10 @@ def judge_frame(path: Path) -> pd.DataFrame:
                 "judge_mode": str(r["judge_mode"]),
                 "label": int(value),
             })
-    return pd.DataFrame(rows)
+    return pd.DataFrame(
+        rows,
+        columns=["response_id", "judge_id", "judge_provider", "judge_model", "judge_mode", "label"],
+    )
 
 
 def judge_provider_audit(ref: pd.DataFrame, jdf: pd.DataFrame, outdir: Path) -> None:
@@ -320,8 +323,9 @@ def target_failures_and_automated(responses_path: Path, jdf: pd.DataFrame, cfg: 
     fail["rate"] = fail["n"] / fail["target_total"]
     fail.to_csv(outdir / "target_output_status.csv", index=False)
 
-    # Automated model estimates are deliberately limited to the physician-calibration
-    # cohort because the judge is not run on the remaining 720 unanchored cells.
+    # Automated model estimates are deliberately limited to the 60-source
+    # physician-reference cohort; the other 90 construct-valid sources are not sent
+    # to target APIs in the primary study.
     g = responses.merge(jdf[["response_id", "label"]], on="response_id", how="inner")
     if g.empty:
         pd.DataFrame().to_csv(outdir / "automated_calibration_cohort_target_estimates.csv", index=False)
