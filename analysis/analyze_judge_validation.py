@@ -142,7 +142,11 @@ def main() -> None:
                 "target_provider_from_judge_record": str(r.get("target_provider", "")),
                 "same_provider_target_judge": bool(r.get("same_provider_target_judge", False)),
             })
-    jdf = pd.DataFrame(rows)
+    jdf = pd.DataFrame(
+        rows,
+        columns=["response_id", "judge_label", "target_provider_from_judge_record",
+                 "same_provider_target_judge"],
+    )
     merged = ref.merge(jdf, on="response_id", how="inner", validate="one_to_one")
 
     out_rows = [
