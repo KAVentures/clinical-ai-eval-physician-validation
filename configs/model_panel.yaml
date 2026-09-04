@@ -54,6 +54,16 @@ primary_judges:
 # study lock. If not, the study proceeds with no replacement.
 secondary_judges: []
 
+framework_validation_thresholds:
+  automated_judge_sensitivity_min: 0.80
+  automated_judge_specificity_min: 0.80
+  construct_confirmation_min: 0.80
+  provenance: >-
+    Inherited prospectively from Clinical-AI-Eval's pre-existing default validation
+    protocol: defect-detection sensitivity >=0.80 and false-alert rate <=0.20.
+    Confidence intervals are reported and the manuscript will not equate a threshold
+    crossing with deployment readiness.
+
 automated_judge_selection:
   rationale: >-
     The predecessor Grok 4.3 showed the strongest point-estimate clinician alignment
