@@ -29,7 +29,7 @@ target_models:
   - target_id: google_gemini31pro
     provider: google
     model: gemini-3.1-pro-preview
-    reasoning_effort: provider_default
+    reasoning_effort: high
     tools: disabled
   - target_id: xai_grok46
     provider: xai
@@ -47,7 +47,7 @@ primary_judges:
     provider: google
     model: gemini-3.1-pro-preview
     mode: blinded
-    reasoning_effort: provider_default
+    reasoning_effort: high
   - judge_id: xai_grok46_blinded
     provider: xai
     model: grok-4.6
@@ -69,7 +69,7 @@ secondary_judges:
     provider: google
     model: gemini-3.1-pro-preview
     mode: rubric_aware
-    reasoning_effort: provider_default
+    reasoning_effort: high
   - judge_id: xai_grok46_cued
     provider: xai
     model: grok-4.6
@@ -89,6 +89,6 @@ inference_policy:
   note: >-
     OpenAI and xAI use their Responses APIs; Anthropic uses Messages; Google uses
     generateContent. Reasoning effort is passed exactly where independently
-    verified. Google is intentionally provider_default. Every call records a
+    verified. Gemini 3.1 Pro uses explicit thinkingLevel=high. Every call records a
     request hash, configured and provider-resolved model, endpoint, HTTP status,
     attempt count, timing, and usage. No web/search/tools are enabled.
