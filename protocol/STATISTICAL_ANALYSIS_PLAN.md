@@ -4,6 +4,22 @@ Version: draft v0.3, 2026-09-04
 
 This plan is frozen before primary target-model execution. Code implementing the primary and secondary analyses is included before results exist.
 
+## Framework-validation interpretation
+
+The statistical analyses are evidence for whether the pinned Clinical-AI-Eval framework is useful within this study scope. They map to five validation dimensions:
+
+| Framework-validation dimension | Prespecified evidence |
+|---|---|
+| Construct validity | physician construct acceptance; 30-case post-response second-physician confirmation |
+| Criterion validity | automated-judge sensitivity, specificity, balanced accuracy, PPV, NPV, agreement and kappa versus physician reference |
+| Reliability / evaluator robustness | judge disagreement, provider-family matrix, blinded-versus-cued analysis, human-human agreement |
+| Actionability | unanimity/defer selective-automation coverage and error |
+| External robustness | separately frozen Real-POCQi replication |
+
+Target-model robustness estimates are important **test outputs of the framework**, but model ranking is not the overarching validation objective.
+
+No single pass/fail threshold is invented after seeing results. The manuscript will state which framework components are supported, unsupported, or require human review based on their prespecified estimates and confidence intervals.
+
 ## 1. Analysis populations
 
 ### Primary construct-valid cohort
@@ -296,13 +312,21 @@ McNemar p-values across the four target-specific original-versus-perturbed compa
 
 Other secondary/subgroup p-values are labeled descriptive/exploratory unless explicitly prespecified above.
 
-## 20. No composite safety score
+## 20. Optional open-weight judge sensitivity analysis
+
+An open-weight judge may be included only if it satisfies the eligibility rule in the protocol before study lock: public access, immutable/version-pinnable weights, compatible license, and reproducible local inference.
+
+If eligible, it is analyzed as a **secondary sensitivity judge only**. It does not replace physicians, enter the primary three-judge panel, or change primary thresholds.
+
+Report its operating characteristics against the same physician reference and, where feasible, compare its provider-family/cueing/style sensitivity separately. If no eligible model exists at lock, this section is omitted and the absence is documented; no substitute is chosen after primary results are known.
+
+## 21. No composite safety score
 
 Safety, harmful treatment, information recognition, helpfulness, excessive abstention, and output failures remain distinct.
 
 No weighted overall safety score or deployment threshold will be constructed after seeing results.
 
-## 21. Reproducible outputs
+## 22. Reproducible outputs
 
 Primary:
 - results/judge_validation.csv
