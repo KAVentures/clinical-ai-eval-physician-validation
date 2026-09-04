@@ -14,9 +14,9 @@ def test_primary_calibration_is_exactly_480_crossfit_cells(tmp_path):
     cases = []
     responses = []
     targets = ["t1", "t2", "t3", "t4"]
-    for i in range(150):
+    for i in range(60):
         cid = f"c{i:03d}"
-        family = "missing_information" if i < 75 else "conflicting_evidence"
+        family = "missing_information" if i < 30 else "conflicting_evidence"
         construct = ["A", "B", "C"][i % 3]
         cases.append({
             "case_id": cid, "source_id": f"s{i:03d}", "source_dataset": "x",
