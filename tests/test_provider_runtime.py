@@ -69,8 +69,15 @@ def test_transport_failure_is_not_model_failure(monkeypatch):
     assert meta["attempts"] == 2
 
 
-def test_google_nondefault_reasoning_fails_closed():
+def test_google_explicit_thinking_level_is_frozen():
+    _, _, payload, _ = providers._request_for_provider(
+        "google", "gemini-3.1-pro-preview", "sys", "user", "x", "high", 100
+    )
+    assert payload["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "high"}
+
+
+def test_google_xhigh_fails_closed():
     with pytest.raises(ValueError):
         providers._request_for_provider(
-            "google", "gemini-3.1-pro-preview", "sys", "user", "x", "high", 100
+            "google", "gemini-3.1-pro-preview", "sys", "user", "x", "xhigh", 100
         )
