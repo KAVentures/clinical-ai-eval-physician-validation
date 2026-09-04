@@ -384,7 +384,17 @@ python scripts/finalize_real_pocqi_casepack.py \
   --public-out data/real_pocqi_casepack_manifest.csv
 ~~~
 
-Run the same four frozen target models on all 50 external sources:
+Run the same four frozen target models on all 50 external sources, keeping the external outputs in a separate vault subtree:
+
+~~~bash
+python scripts/run_targets.py \
+  --casepack "$STUDY_VAULT/casepack/external_real_pocqi_50.private.jsonl" \
+  --models configs/model_panel.yaml \
+  --vault "$STUDY_VAULT/external" \
+  --public-manifest data/real_pocqi_target_response_manifest.csv
+~~~
+
+Expected:
 
 50 × 2 × 4 = **400 target response cells**.
 
@@ -392,7 +402,7 @@ Create physician review units with:
 
 ~~~bash
 python scripts/select_physician_calibration.py \
-  --responses "$STUDY_VAULT/responses/real_pocqi_target_responses.private.jsonl" \
+  --responses "$STUDY_VAULT/external/responses/target_responses.private.jsonl" \
   --casepack "$STUDY_VAULT/casepack/external_real_pocqi_50.private.jsonl" \
   --vault "$STUDY_VAULT/external" \
   --public-manifest data/real_pocqi_physician_selection.csv \
