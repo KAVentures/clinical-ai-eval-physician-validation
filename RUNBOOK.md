@@ -391,7 +391,8 @@ python scripts/run_targets.py \
   --casepack "$STUDY_VAULT/casepack/external_real_pocqi_50.private.jsonl" \
   --models configs/model_panel.yaml \
   --vault "$STUDY_VAULT/external" \
-  --public-manifest data/real_pocqi_target_response_manifest.csv
+  --public-manifest data/real_pocqi_target_response_manifest.csv \
+  --expected-cases 50
 ~~~
 
 Expected:
