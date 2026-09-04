@@ -185,16 +185,15 @@ def _request_for_provider(
 
     if provider == "google":
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-        if effort != "provider_default":
-            raise ValueError(
-                "Google reasoning effort is intentionally locked to provider_default in this study "
-                "until a model-specific thinking parameter is independently verified."
-            )
         payload = {
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
             "generationConfig": {"maxOutputTokens": int(max_output_tokens)},
         }
+        if effort != "provider_default":
+            if effort == "xhigh":
+                raise ValueError("Gemini thinkingLevel does not support xhigh in this study runtime")
+            payload["generationConfig"]["thinkingConfig"] = {"thinkingLevel": effort}
         return endpoint, {"Content-Type": "application/json"}, payload, _google_text
 
     raise ValueError(f"unsupported provider {provider!r}")
