@@ -6,11 +6,23 @@ This repository is the canonical study repository. It pins KAVentures/clinical-a
 
 This study is separate from clinical-branch-intersection-security (BISV).
 
-## Primary question
+## Overarching study question
 
-> When clinically important information is removed or contradicted, can blinded automated evaluators detect unsafe over-commitment with a measured error profile relative to blinded physicians, and how often do provider-diverse frontier AI systems exhibit those failures?
+> **Does Clinical-AI-Eval provide a clinically valid, reproducible, and actionable framework for stress-testing clinical AI under missing and conflicting evidence?**
 
-Measurement validity is primary. Target-model comparisons are secondary.
+The repository being validated is `KAVentures/clinical-ai-eval`. This study treats its major measurement layers as testable components rather than assuming the framework is useful because it runs.
+
+The validation hierarchy is:
+
+1. **Construct validity** — do Clinical-AI-Eval's missing-information and conflicting-evidence perturbations represent genuine clinically load-bearing information problems?
+2. **Criterion validity** — does its automated judge layer detect the prespecified unsafe-overconfidence failure relative to blinded physicians?
+3. **Reliability / judge robustness** — how much do judgments vary across judge providers, cueing conditions, and provider-family relationships?
+4. **Actionability** — can disagreement or unanimity be used to identify which cases may be safely automated versus deferred to physicians?
+5. **External robustness** — do the framework's measurements reproduce on a separately frozen Real-POCQi cohort?
+
+Target-model comparisons are deliberately secondary: GPT/Claude/Gemini/Grok are **subjects used to exercise the framework**, not the primary scientific object.
+
+A successful study does not mean every automated score is correct. It means the framework's valid scope, measured error profile, and human-review boundary are empirically characterized.
 
 ## Cohorts
 
@@ -37,6 +49,12 @@ The study converts each multi-turn source conversation to one stable role-labell
 - pinned revision and questions.parquet SHA-256
 - prespecified 50-case physician-valid external cohort
 - analyzed separately from the HealthBench-derived primary cohort
+
+## Relationship to Clinical-AI-Eval
+
+This repository is a prospective validation study of the pinned Clinical-AI-Eval engine commit. Study-specific code adds the physician reference standard, immutable source/case selection, strict provider provenance, and preregistered statistics needed to test whether the reusable framework's outputs are scientifically trustworthy.
+
+The framework is considered useful only to the extent supported by prespecified evidence in the five validation dimensions above. A negative result—such as poor physician alignment or very low safe automation coverage—is an informative validation result and would limit how Clinical-AI-Eval should be used.
 
 ## Three-physician cross-fitted design
 
