@@ -3,9 +3,9 @@
 This study is designed against:
 
 - Repository: `KAVentures/clinical-ai-eval`
-- Commit: `9c91db4d8909f343331315a510e6e5c7aa90d676`
+- Commit: `6fc5b60b6cb1cb68f9748baea65d16f18ddc38c1`
 
-The pinned framework commit is the exact Clinical-AI-Eval version this study prospectively validates. It supplies the shared scoring contract and judge-schema parsing and, importantly, supports the study's evidence-based policies: one calibrated blinded judge may be used when explicitly configured, multi-provider judging remains an optional robustness mode, two independent clinicians may resolve ties by locked post-independent consensus, and source-level cross-fitted clinician roles are representable.
+The pinned framework commit is the exact Clinical-AI-Eval version this study prospectively validates. The final physician-approved perturbations enter through its first-class preconstructed-variant family SDK path, so the study exercises framework code rather than a parallel study-only manifestation contract. It supplies the shared scoring contract and judge-schema parsing and, importantly, supports the study's evidence-based policies: one calibrated blinded judge may be used when explicitly configured, multi-provider judging remains an optional robustness mode, two independent clinicians may resolve ties by locked post-independent consensus, and source-level cross-fitted clinician roles are representable.
 
 Study-specific orchestration that is not part of the reusable framework is intentionally implemented in this repository under `study_runtime/`, including:
 
