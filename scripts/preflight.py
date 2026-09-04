@@ -75,7 +75,7 @@ def main() -> None:
         raise RuntimeError("model panel is not frozen")
     if args.phase == "targets":
         require_keys({x["provider"] for x in cfg.get("target_models", [])}, args.keys)
-    else:
+    elif args.phase == "judges":
         require_keys({x["provider"] for x in cfg.get("primary_judges", [])}, args.keys)
 
     case_rows = read_csv(args.casepack_manifest)
