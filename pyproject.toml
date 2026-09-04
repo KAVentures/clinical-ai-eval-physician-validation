@@ -20,5 +20,8 @@ dependencies = [
   "clinical-ai-eval @ git+https://github.com/KAVentures/clinical-ai-eval.git@648ad23e8fb6b8a877217341a4bea9e4eb5bd9ca",
 ]
 
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
 [tool.setuptools.packages.find]
 include = ["study_runtime*"]
