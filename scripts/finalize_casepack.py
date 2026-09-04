@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Finalize the physician-valid primary casepack deterministically.
+"""Finalize the cross-fitted HealthBench Professional casepack.
 
-A/B may review a prespecified subset of all drafted perturbations (the default
-first wave is one perturbation per source). Only jointly reviewed perturbations can
-become valid. Discordant reviewed perturbations require C adjudication. If the
-reviewed valid reservoir cannot fill a locked source-stratum quota, this script
-fails closed so a prespecified fallback review wave can be run before model calls.
+Every perturbation is reviewed by exactly one prespecified construct physician.
+The two other physicians remain unexposed to that source pair and are therefore
+eligible for blinded response review. First-wave and fallback review files may be
+combined with repeated --review arguments.
+
+This is deliberate role separation, not a claim that one physician is a universal
+clinical ground truth. A post-response construct-reliability audit is prespecified
+elsewhere and occurs only after blinded response labels are locked.
 """
 from __future__ import annotations
 
@@ -17,6 +20,8 @@ from collections import defaultdict
 from pathlib import Path
 
 SEED = "clinical-ai-eval-physician-validation-v1"
+CROSSFIT_SEED = "clinical-ai-eval-physician-validation-v1|construct-crossfit"
+REVIEWERS = ("A", "B", "C")
 QUOTAS = {
     ("good_faith", "typical"): 53,
     ("good_faith", "difficult"): 38,
@@ -28,6 +33,11 @@ VALID = {"valid", "accept", "accepted"}
 
 def stable_hash(*parts: str) -> str:
     return hashlib.sha256((SEED + "|" + "|".join(parts)).encode()).hexdigest()
+
+
+def construct_reviewer(source_id: str) -> str:
+    h = hashlib.sha256(f"{CROSSFIT_SEED}|reviewer|{source_id}".encode()).hexdigest()
+    return REVIEWERS[int(h, 16) % len(REVIEWERS)]
 
 
 def sha256_text(text: str) -> str:
@@ -58,22 +68,27 @@ def row_valid(row: dict) -> bool:
     )
 
 
-def normalize_decision(row: dict) -> str:
-    return "valid" if row_valid(row) else "not_valid"
-
-
-def review_map(rows: list[dict], expected_reviewer: str) -> dict[str, dict]:
-    out = {}
-    for r in rows:
-        rid = str(r.get("reviewer_id", "")).strip()
-        if rid != expected_reviewer:
-            raise ValueError(f"expected reviewer_id={expected_reviewer!r}, got {rid!r}")
-        pid = str(r.get("perturbation_id", ""))
-        if not pid:
-            raise ValueError("review row missing perturbation_id")
-        if pid in out:
-            raise ValueError(f"duplicate review for {pid} by {expected_reviewer}")
-        out[pid] = r
+def load_reviews(paths: list[Path], drafts: dict[str, dict]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for path in paths:
+        for row in read_csv(path):
+            pid = str(row.get("perturbation_id", "")).strip()
+            sid = str(row.get("source_id", "")).strip()
+            rid = str(row.get("reviewer_id", "")).strip()
+            if not pid or pid not in drafts:
+                raise RuntimeError(f"{path}: unknown/missing perturbation_id {pid!r}")
+            if sid != str(drafts[pid]["source_id"]):
+                raise RuntimeError(f"{path}: source mismatch for {pid}")
+            expected = construct_reviewer(sid)
+            if rid != expected:
+                raise RuntimeError(
+                    f"{path}: source {sid} was assigned to construct reviewer {expected}, not {rid}"
+                )
+            if pid in out:
+                raise RuntimeError(f"duplicate construct review for {pid}: {path}")
+            out[pid] = row
+    if not out:
+        raise RuntimeError("no construct reviews supplied")
     return out
 
 
@@ -81,85 +96,61 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--drafts", required=True, type=Path)
     p.add_argument("--candidate-queue", required=True, type=Path)
-    p.add_argument("--review-a", required=True, type=Path)
-    p.add_argument("--review-b", required=True, type=Path)
-    p.add_argument("--adjudication-c", type=Path)
+    p.add_argument("--review", required=True, action="append", type=Path,
+                   help="Completed construct review CSV; repeat for A/B/C and fallback waves")
     p.add_argument("--vault", required=True, type=Path)
     p.add_argument("--public-out", required=True, type=Path)
     args = p.parse_args()
 
-    drafts = {str(d["perturbation_id"]): d for d in read_jsonl(args.drafts) if d.get("applicable_draft")}
+    drafts = {
+        str(d["perturbation_id"]): d
+        for d in read_jsonl(args.drafts)
+        if d.get("applicable_draft")
+    }
     candidates = read_csv(args.candidate_queue)
-    a = review_map(read_csv(args.review_a), "A")
-    b = review_map(read_csv(args.review_b), "B")
-    c = review_map(read_csv(args.adjudication_c), "C") if args.adjudication_c else {}
-
-    if set(a) != set(b):
-        only_a = sorted(set(a) - set(b))
-        only_b = sorted(set(b) - set(a))
-        raise RuntimeError(f"A/B must review the same locked perturbation set; only_a={only_a[:3]}, only_b={only_b[:3]}")
-    reviewed = set(a)
-    unknown = sorted(reviewed - set(drafts))
-    if unknown:
-        raise RuntimeError(f"review packet references unknown perturbation {unknown[0]}")
-    if not reviewed:
-        raise RuntimeError("no perturbations were reviewed")
-
-    validity = {}
-    audit_rows = []
-    for pid in sorted(reviewed):
-        d = drafts[pid]
-        da, db = normalize_decision(a[pid]), normalize_decision(b[pid])
-        if da == db:
-            final = da
-            adjudicated = False
-        else:
-            if pid not in c:
-                raise RuntimeError(f"A/B disagree on {pid}; reviewer C adjudication required")
-            final = normalize_decision(c[pid])
-            adjudicated = True
-        validity[pid] = final == "valid"
-        audit_rows.append({
-            "perturbation_id": pid,
-            "source_id": d["source_id"],
-            "family": d["family"],
-            "reviewer_a": da,
-            "reviewer_b": db,
-            "adjudicated": adjudicated,
-            "reviewer_c": normalize_decision(c[pid]) if adjudicated else "",
-            "final_construct_valid": final == "valid",
-        })
-    audit_by_pid = {str(r["perturbation_id"]): r for r in audit_rows}
+    reviews = load_reviews(args.review, drafts)
 
     valid_by_source: dict[str, dict[str, dict]] = defaultdict(dict)
-    for pid in reviewed:
+    audit_rows = []
+    for pid, row in sorted(reviews.items()):
         d = drafts[pid]
-        if validity[pid]:
-            valid_by_source[str(d["source_id"])][str(d["family"])] = d
+        valid = row_valid(row)
+        sid, family = str(d["source_id"]), str(d["family"])
+        audit_rows.append({
+            "perturbation_id": pid,
+            "source_id": sid,
+            "family": family,
+            "construct_reviewer": row["reviewer_id"],
+            "final_construct_valid": valid,
+            "decision": row.get("decision", ""),
+            "notes": row.get("notes", ""),
+        })
+        if valid:
+            if family in valid_by_source[sid]:
+                raise RuntimeError(f"multiple valid perturbation versions for {sid}/{family}; freeze one version explicitly")
+            valid_by_source[sid][family] = d
 
     selected = []
-    for stratum, quota in QUOTAS.items():
-        kind, difficulty = stratum
+    for (kind, difficulty), quota in QUOTAS.items():
         pool = [r for r in candidates if r.get("type") == kind and r.get("difficulty") == difficulty]
         pool.sort(key=lambda r: int(r["stratum_priority"]))
         accepted = [r for r in pool if str(r["source_id"]) in valid_by_source]
         if len(accepted) < quota:
-            deficit = quota - len(accepted)
             raise RuntimeError(
-                f"NEEDS_FALLBACK_REVIEW: stratum {stratum} has {len(accepted)} physician-valid reviewed sources; "
-                f"needs {quota} (deficit {deficit}). Review prespecified alternate/unreviewed candidates before any target call."
+                f"NEEDS_FALLBACK_REVIEW: stratum {(kind, difficulty)} has {len(accepted)} "
+                f"construct-valid reviewed sources; needs {quota}. Generate a deterministic fallback wave "
+                "with make_construct_packets.py --mode fallback before any target-model call."
             )
         selected.extend(accepted[:quota])
 
     if len(selected) != 150:
         raise AssertionError(f"expected 150 selected source cases, got {len(selected)}")
 
-    assigned = {}
-    forced_missing = 0
-    forced_conflict = 0
-    flexible = []
-    for r in selected:
-        sid = str(r["source_id"])
+    assigned: dict[str, str] = {}
+    forced_missing = forced_conflict = 0
+    flexible: list[str] = []
+    for row in selected:
+        sid = str(row["source_id"])
         fams = set(valid_by_source[sid])
         if fams == {"missing_information"}:
             assigned[sid] = "missing_information"
@@ -179,11 +170,11 @@ def main() -> None:
     for i, sid in enumerate(flexible):
         assigned[sid] = "missing_information" if i < need_missing else "conflicting_evidence"
 
-    final_missing = sum(v == "missing_information" for v in assigned.values())
-    final_conflict = sum(v == "conflicting_evidence" for v in assigned.values())
-    if min(final_missing, final_conflict) < 30:
+    n_missing = sum(v == "missing_information" for v in assigned.values())
+    n_conflict = sum(v == "conflicting_evidence" for v in assigned.values())
+    if min(n_missing, n_conflict) < 30:
         raise RuntimeError(
-            f"primary family distribution {final_missing}/{final_conflict} cannot support the prespecified 30/30 physician calibration cohort"
+            f"primary family distribution {n_missing}/{n_conflict} cannot support the locked 30/30 calibration sample"
         )
 
     private_out = args.vault / "casepack" / "primary_hbp_150.private.jsonl"
@@ -193,32 +184,37 @@ def main() -> None:
     public_fields = [
         "case_id", "source_dataset", "source_id", "type", "difficulty", "specialty",
         "source_content_sha256", "primary_family", "primary_perturbation_id",
-        "original_case_sha256", "perturbed_case_sha256", "construct_review_a",
-        "construct_review_b", "construct_adjudicated", "construct_review_c", "casepack_status",
+        "construct_reviewer", "original_case_sha256", "perturbed_case_sha256",
+        "casepack_status",
     ]
     public_rows = []
+    by_pid = {r["perturbation_id"]: r for r in audit_rows}
+
     with private_out.open("w", encoding="utf-8") as pf:
         for r in sorted(selected, key=lambda x: (x["type"], x["difficulty"], int(x["stratum_priority"]))):
             sid = str(r["source_id"])
             family = assigned[sid]
             d = valid_by_source[sid][family]
             pid = str(d["perturbation_id"])
+            rid = construct_reviewer(sid)
+            if by_pid[pid]["construct_reviewer"] != rid:
+                raise AssertionError("construct reviewer mapping drift")
             case_id = "hbpv1-" + stable_hash("case-id", sid)[:12]
-            ra, rb = normalize_decision(a[pid]), normalize_decision(b[pid])
-            adjudicated = ra != rb
-            rc = normalize_decision(c[pid]) if adjudicated else ""
             private_record = {
                 "case_id": case_id,
                 "source_dataset": r["source_dataset"],
                 "source_id": sid,
-                "source_metadata": {"type": r.get("type"), "difficulty": r.get("difficulty"), "specialty": r.get("specialty")},
+                "source_metadata": {
+                    "type": r.get("type"), "difficulty": r.get("difficulty"), "specialty": r.get("specialty")
+                },
+                "construct_reviewer": rid,
                 "primary_family": family,
                 "primary_perturbation_id": pid,
                 "original_case": d["original_case"],
                 "perturbed_case": d["modified_case"],
                 "changed_evidence": d.get("changed_evidence", ""),
                 "draft_safe_response_strategy": d.get("safe_response_strategy", ""),
-                "construct_validation": audit_by_pid[pid],
+                "construct_validation": by_pid[pid],
             }
             pf.write(json.dumps(private_record, ensure_ascii=False) + "\n")
             public_rows.append({
@@ -231,13 +227,10 @@ def main() -> None:
                 "source_content_sha256": r.get("source_content_sha256", ""),
                 "primary_family": family,
                 "primary_perturbation_id": pid,
+                "construct_reviewer": rid,
                 "original_case_sha256": sha256_text(d["original_case"]),
                 "perturbed_case_sha256": sha256_text(d["modified_case"]),
-                "construct_review_a": ra,
-                "construct_review_b": rb,
-                "construct_adjudicated": str(adjudicated).lower(),
-                "construct_review_c": rc,
-                "casepack_status": "physician_construct_valid",
+                "casepack_status": "crossfit_construct_valid",
             })
 
     with args.public_out.open("w", newline="", encoding="utf-8") as f:
@@ -248,7 +241,8 @@ def main() -> None:
     audit_path = args.vault / "casepack" / "construct_review_audit.private.json"
     audit_path.write_text(json.dumps(audit_rows, indent=2), encoding="utf-8")
 
-    print(f"Final primary casepack: 150 cases ({final_missing} missing-information, {final_conflict} conflict)")
+    print(f"Final primary casepack: 150 cases ({n_missing} missing-information, {n_conflict} conflict)")
+    print("Each case has one prespecified construct reviewer; the other two physicians remain response-blinded.")
     print(f"Private casepack: {private_out}")
     print(f"Public manifest: {args.public_out}")
 
