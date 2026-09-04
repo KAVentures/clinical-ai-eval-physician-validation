@@ -1,4 +1,7 @@
 numpy>=1.24
 pandas>=2.0
 PyYAML>=6.0
-clinical-ai-eval @ git+https://github.com/KAVentures/clinical-ai-eval.git@648ad23e8fb6b8a877217341a4bea9e4eb5bd9ca
+scipy>=1.11
+statsmodels>=0.14
+pyarrow>=15
+clinical-ai-eval @ git+https://github.com/KAVentures/clinical-ai-eval.git@cb2c55146252e7c7100c388d5ecebd0d4bd4f14a

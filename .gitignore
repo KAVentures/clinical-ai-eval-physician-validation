@@ -1,13 +1,27 @@
+# Secrets
+API_KEYS.local.md
+.env
+.env.*
+!.env.example
+
 # Raw/derived clinical text and reviewer packets must never be committed.
 *.private.*
 private/
 vault/
-review/construct_review_A.csv
-review/construct_review_B.csv
-review/construct_review_C.csv
+review/construct_review_A*.csv
+review/construct_review_B*.csv
+review/construct_review_C*.csv
 review/response_review_A.csv
 review/response_review_B.csv
-review/response_adjudication_C.csv
+review/response_review_C.csv
+review/response_consensus.csv
+
+# Local Python artifacts
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
 
 # Generated public manifests/results are intentionally reviewable before commit.
 # Do not blanket-ignore data/ or results/.

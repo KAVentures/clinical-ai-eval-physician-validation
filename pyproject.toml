@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clinical-ai-eval-physician-validation"
-version = "0.1.0"
+version = "0.2.0"
 description = "Physician-anchored validation study for perturbation-based clinical AI evaluation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,8 +14,14 @@ dependencies = [
   "numpy>=1.24",
   "pandas>=2.0",
   "PyYAML>=6.0",
-  "clinical-ai-eval @ git+https://github.com/KAVentures/clinical-ai-eval.git@648ad23e8fb6b8a877217341a4bea9e4eb5bd9ca",
+  "scipy>=1.11",
+  "statsmodels>=0.14",
+  "pyarrow>=15",
+  "clinical-ai-eval @ git+https://github.com/KAVentures/clinical-ai-eval.git@cb2c55146252e7c7100c388d5ecebd0d4bd4f14a",
 ]
 
-[tool.setuptools]
-py-modules = []
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["study_runtime*"]
