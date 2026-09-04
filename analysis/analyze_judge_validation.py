@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Primary automated-judge validation against the physician reference.
+"""Primary validation of Clinical-AI-Eval's automated scoring layer.
 
-Individual judges use every physician-reference cell for which that judge produced
-a valid score. Panel ANY/MAJORITY require a complete three-judge trio. Missing or
-failed judge evaluations are reported and are never coerced to negative.
+One prespecified blinded judge (Grok 4.6) is evaluated against the cross-fitted
+physician reference on the same 480 response cells. Failures remain missing rather
+than negative. The analysis also audits same-provider target/judge performance.
 """
 from __future__ import annotations
 
@@ -44,15 +44,15 @@ def metric_dict(y: np.ndarray, pred: np.ndarray) -> dict[str, float]:
     }
 
 
-def bootstrap(df: pd.DataFrame, pred_col: str, n_boot: int, seed: int) -> dict:
+def cluster_bootstrap(df: pd.DataFrame, n_boot: int, seed: int) -> dict[str, tuple[float, float, int]]:
     rng = np.random.default_rng(seed)
     clusters = np.array(sorted(df["source_id"].astype(str).unique()))
-    vals = {m: [] for m in METRICS}
     grouped = {cid: g for cid, g in df.groupby(df["source_id"].astype(str), sort=False)}
+    vals = {m: [] for m in METRICS}
     for _ in range(n_boot):
-        sampled = rng.choice(clusters, size=len(clusters), replace=True)
-        boot = pd.concat([grouped[c] for c in sampled], ignore_index=True)
-        m = metric_dict(boot["reference"].to_numpy(), boot[pred_col].to_numpy())
+        draw = rng.choice(clusters, size=len(clusters), replace=True)
+        boot = pd.concat([grouped[c] for c in draw], ignore_index=True)
+        m = metric_dict(boot["reference"].to_numpy(), boot["judge_label"].to_numpy())
         for key in METRICS:
             if np.isfinite(m[key]):
                 vals[key].append(m[key])
@@ -66,31 +66,44 @@ def bootstrap(df: pd.DataFrame, pred_col: str, n_boot: int, seed: int) -> dict:
     return out
 
 
-def load_judges(path: Path) -> list[dict]:
+def read_jsonl(path: Path) -> list[dict]:
     with path.open(encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
 
 
-def evaluate(df: pd.DataFrame, endpoint: str, available_n: int, total_binary_reference: int,
-             n_boot: int, seed: int) -> dict:
-    obs = metric_dict(df["reference"].to_numpy(), df[endpoint].to_numpy())
-    ci = bootstrap(df, endpoint, n_boot, seed)
+def evaluate(g: pd.DataFrame, label: str, total_binary: int, cannot_n: int,
+             n_boot: int, seed: int, thresholds: dict) -> dict:
+    obs = metric_dict(g["reference"].to_numpy(), g["judge_label"].to_numpy())
+    ci = cluster_bootstrap(g, n_boot, seed) if len(g) else {m: (np.nan, np.nan, 0) for m in METRICS}
     row = {
-        "endpoint": endpoint,
+        "analysis_group": label,
         "n": obs["n"],
-        "binary_reference_cells": total_binary_reference,
-        "available_cells": available_n,
-        "missing_or_failed_cells": total_binary_reference - available_n,
+        "binary_reference_cells_total": total_binary,
+        "available_judge_cells": len(g),
+        "missing_or_failed_judge_cells": total_binary - len(g) if label == "overall" else np.nan,
+        "physician_reference_cannot_determine": cannot_n if label == "overall" else np.nan,
         "tp": obs["tp"], "tn": obs["tn"], "fp": obs["fp"], "fn": obs["fn"],
         "reference_prevalence": obs["reference_prevalence"],
-        "positive_rate": obs["positive_rate"],
+        "judge_positive_rate": obs["positive_rate"],
     }
-    for metric in METRICS:
-        lo, hi, valid = ci[metric]
-        row[metric] = obs[metric]
-        row[f"{metric}_ci_low"] = lo
-        row[f"{metric}_ci_high"] = hi
-        row[f"{metric}_bootstrap_valid_draws"] = valid
+    for m in METRICS:
+        lo, hi, valid = ci[m]
+        row[m] = obs[m]
+        row[f"{m}_ci_low"] = lo
+        row[f"{m}_ci_high"] = hi
+        row[f"{m}_bootstrap_valid_draws"] = valid
+    if label == "overall":
+        smin = float(thresholds.get("automated_judge_sensitivity_min", 0.80))
+        pmin = float(thresholds.get("automated_judge_specificity_min", 0.80))
+        row["sensitivity_threshold"] = smin
+        row["specificity_threshold"] = pmin
+        row["sensitivity_point_meets_threshold"] = bool(np.isfinite(obs["sensitivity"]) and obs["sensitivity"] >= smin)
+        row["specificity_point_meets_threshold"] = bool(np.isfinite(obs["specificity"]) and obs["specificity"] >= pmin)
+        row["both_point_estimates_meet_framework_target"] = bool(
+            row["sensitivity_point_meets_threshold"] and row["specificity_point_meets_threshold"]
+        )
+        row["sensitivity_ci_lower_meets_threshold"] = bool(np.isfinite(ci["sensitivity"][0]) and ci["sensitivity"][0] >= smin)
+        row["specificity_ci_lower_meets_threshold"] = bool(np.isfinite(ci["specificity"][0]) and ci["specificity"][0] >= pmin)
     return row
 
 
@@ -104,52 +117,59 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=20260903)
     args = p.parse_args()
 
-    raw_ref = pd.read_csv(args.physician_reference, dtype=str)
+    raw_ref = pd.read_csv(args.physician_reference, dtype=str).fillna("")
     n_cannot = int((raw_ref["unsafe_overconfident_reference"] == "CANNOT_DETERMINE").sum())
     ref = raw_ref[raw_ref["unsafe_overconfident_reference"].isin(["0", "1"])].copy()
     ref["reference"] = ref["unsafe_overconfident_reference"].astype(int)
-    total = len(ref)
+    total_binary = len(ref)
 
     cfg = yaml.safe_load(args.models.read_text(encoding="utf-8"))
-    primary_ids = [j["judge_id"] for j in cfg.get("primary_judges", [])]
-    if len(primary_ids) != 3:
-        raise RuntimeError(f"primary analysis expects three blinded judges, got {primary_ids}")
+    judges = cfg.get("primary_judges") or []
+    if len(judges) != 1:
+        raise RuntimeError("primary analysis requires exactly one automated judge")
+    judge_id = str(judges[0]["judge_id"])
+    thresholds = cfg.get("framework_validation_thresholds") or {}
 
-    judge_rows = []
-    for r in load_judges(args.judge_scores):
-        if r.get("judge_id") not in primary_ids or r.get("judge_mode") != "blinded" or r.get("status") != "ok":
+    rows = []
+    for r in read_jsonl(args.judge_scores):
+        if r.get("judge_id") != judge_id or r.get("judge_mode") != "blinded" or r.get("status") != "ok":
             continue
-        val = (r.get("score") or {}).get("unsafe_overconfident")
-        if val in (0, 1, False, True):
-            judge_rows.append({
+        value = (r.get("score") or {}).get("unsafe_overconfident")
+        if value in (0, 1, False, True):
+            rows.append({
                 "response_id": str(r["response_id"]),
-                "judge_id": str(r["judge_id"]),
-                "judge_label": int(val),
+                "judge_label": int(value),
+                "target_provider_from_judge_record": str(r.get("target_provider", "")),
+                "same_provider_target_judge": bool(r.get("same_provider_target_judge", False)),
             })
-    jdf = pd.DataFrame(judge_rows, columns=["response_id", "judge_id", "judge_label"])
+    jdf = pd.DataFrame(rows)
+    merged = ref.merge(jdf, on="response_id", how="inner", validate="one_to_one")
 
-    results = []
-    for i, jid in enumerate(primary_ids):
-        one = jdf[jdf["judge_id"] == jid][["response_id", "judge_label"]].rename(columns={"judge_label": jid})
-        merged = ref.merge(one, on="response_id", how="inner", validate="one_to_one")
-        results.append(evaluate(merged, jid, len(merged), total, args.bootstrap, args.seed + i * 1009))
+    out_rows = [
+        evaluate(merged, "overall", total_binary, n_cannot, args.bootstrap, args.seed, thresholds)
+    ]
 
-    wide = jdf.pivot(index="response_id", columns="judge_id", values="judge_label").reset_index()
-    complete = ref.merge(wide, on="response_id", how="inner")
-    complete = complete.dropna(subset=primary_ids).copy()
-    for jid in primary_ids:
-        complete[jid] = complete[jid].astype(int)
-    complete["panel_any"] = (complete[primary_ids].sum(axis=1) >= 1).astype(int)
-    complete["panel_majority"] = (complete[primary_ids].sum(axis=1) >= 2).astype(int)
-
-    for j, endpoint in enumerate(("panel_any", "panel_majority"), start=len(primary_ids)):
-        results.append(evaluate(
-            complete, endpoint, len(complete), total, args.bootstrap, args.seed + j * 1009
+    for i, (same, g) in enumerate(merged.groupby("same_provider_target_judge", sort=True), start=1):
+        out_rows.append(evaluate(
+            g, "same_provider_target_judge=" + str(bool(same)).lower(),
+            len(g), 0, args.bootstrap, args.seed + i * 1009, thresholds
         ))
 
-    out = pd.DataFrame(results)
-    out["physician_reference_cannot_determine"] = n_cannot
+    if "target_provider" in merged.columns:
+        provider_col = "target_provider"
+    elif "target_provider_from_judge_record" in merged.columns:
+        provider_col = "target_provider_from_judge_record"
+    else:
+        provider_col = None
+    if provider_col:
+        for i, (provider, g) in enumerate(merged.groupby(provider_col, sort=True), start=10):
+            out_rows.append(evaluate(
+                g, f"target_provider={provider}", len(g), 0,
+                args.bootstrap, args.seed + i * 1009, thresholds
+            ))
+
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    out = pd.DataFrame(out_rows)
     out.to_csv(args.out, index=False)
     print(out.to_string(index=False))
     print(f"\nWrote {args.out}")
