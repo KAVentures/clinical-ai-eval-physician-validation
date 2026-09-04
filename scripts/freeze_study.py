@@ -75,6 +75,7 @@ def main() -> None:
         r for r in case_rows
         if r.get("framework_variant_source") != "preconstructed"
         or r.get("framework_structural_valid") != "true"
+        or r.get("framework_human_confirmed") != "true"
         or not r.get("source_variant_id")
         or r.get("primary_perturbation_id") == r.get("source_variant_id")
     ]
