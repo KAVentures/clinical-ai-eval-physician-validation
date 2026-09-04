@@ -125,7 +125,9 @@ Follow `RUNBOOK.md` in order. The high-level immutable sequence is:
 3. authoring lock;
 4. full perturbation drafting;
 5. cross-fitted construct validation;
-6. freeze the 150-case construct-valid casepack;
+6. import every accepted construct through the pinned Clinical-AI-Eval
+   `YamlFamily.ingest_preconstructed_variant()` path, then freeze the 150-case
+   construct-valid casepack;
 7. deterministically select 60 response-validation sources (30/30 families);
 8. live endpoint/model smoke tests;
 9. capture exact Python/package environment;
@@ -173,3 +175,18 @@ Reviewer identities may differ in a replication; role-assignment logic, blinding
 Read `protocol/FRAMEWORK_VALIDATION_SCOPE.md` before interpreting a reproduction.
 
 The study validates only the declared Clinical-AI-Eval families and measurement layers. It does not validate every capability in the upstream framework.
+
+
+## Framework-code-path verification
+
+A reproduction must not substitute a study-only perturbation manifest. During
+casepack finalization, each accepted source variant is imported into the pinned
+Clinical-AI-Eval family SDK. The public casepack manifest records:
+
+- `source_variant_id` — the study authoring/version ID;
+- `primary_perturbation_id` — the Clinical-AI-Eval content-addressed manifest ID;
+- `framework_variant_source=preconstructed`;
+- `framework_structural_valid=true`.
+
+Preflight and study-lock creation fail if those fields do not prove the framework
+path was exercised.
