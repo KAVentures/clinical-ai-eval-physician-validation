@@ -13,6 +13,7 @@ import sys
 
 TESTS = [
     "tests/test_provider_runtime.py",
+    "tests/test_framework_adapter.py",
     "tests/test_casepack_workflows.py",
     "tests/test_calibration_selection.py",
     "tests/test_crossfit_review.py",
