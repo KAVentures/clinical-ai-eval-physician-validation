@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clinical-ai-eval-physician-validation"
+version = "0.1.0"
+description = "Physician-anchored validation study for perturbation-based clinical AI evaluation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Koyar Afrasyab, M.D." }]
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "PyYAML>=6.0",
+  "clinical-ai-eval @ git+https://github.com/KAVentures/clinical-ai-eval.git@648ad23e8fb6b8a877217341a4bea9e4eb5bd9ca",
+]
+
+[tool.setuptools]
+py-modules = []
