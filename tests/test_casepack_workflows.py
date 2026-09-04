@@ -81,9 +81,6 @@ def test_hbp_150_casepack_finalizes_crossfit(tmp_path):
     assert all(r["framework_variant_source"] == "preconstructed" for r in rows)
     assert all(r["framework_structural_valid"] == "true" for r in rows)
     assert all(r["primary_perturbation_id"] != r["source_variant_id"] for r in rows)
-    assert all(r["framework_variant_source"] == "preconstructed" for r in rows)
-    assert all(r["framework_structural_valid"] == "true" for r in rows)
-    assert all(r["primary_perturbation_id"] != r["source_variant_id"] for r in rows)
     private = [json.loads(x) for x in (vault / "casepack/primary_hbp_150.private.jsonl").read_text().splitlines()]
     assert len(private) == 150
     assert min(sum(c["primary_family"] == "missing_information" for c in private),
@@ -124,6 +121,9 @@ def test_real_pocqi_50_casepack_is_executable(tmp_path):
     rows = list(csv.DictReader(public.open(newline="", encoding="utf-8")))
     assert len(rows) == 50
     assert all(r["construct_reviewer"] == reviewer(r["source_id"]) for r in rows)
+    assert all(r["framework_variant_source"] == "preconstructed" for r in rows)
+    assert all(r["framework_structural_valid"] == "true" for r in rows)
+    assert all(r["primary_perturbation_id"] != r["source_variant_id"] for r in rows)
 
 
 def test_fallback_packets_only_expose_unresolved_sources(tmp_path):
