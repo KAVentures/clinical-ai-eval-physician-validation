@@ -148,6 +148,13 @@ The new version requires fresh review.
 
 Expected primary construct-valid pack: exactly 150 sources with HBP quotas 53/38/59 and at least 30 sources in each perturbation family.
 
+Finalization also imports every accepted variant through the pinned Clinical-AI-Eval
+`YamlFamily.ingest_preconstructed_variant()` path. The public manifest must show
+`framework_variant_source=preconstructed`, `framework_structural_valid=true`,
+a study `source_variant_id`, and a distinct framework
+`primary_perturbation_id`. If this framework import fails, the casepack does not
+finalize.
+
 ## Phase 5 — freeze the 60-source response-validation cohort BEFORE target calls
 
 The 150-source pack validates construct generation and source breadth. The physician-powered criterion/model-response analysis uses a prespecified 60-source subset.
@@ -419,6 +426,9 @@ Do not tune prompts, thresholds, model configuration or endpoint definitions fro
 - no raw HealthBench Professional text or physician packets in Git;
 - no API keys in Git;
 - 150-case construct-valid casepack frozen before response-cohort selection;
+- every accepted primary case has a distinct Clinical-AI-Eval content-addressed
+  perturbation ID and proves `framework_variant_source=preconstructed` plus
+  `framework_structural_valid=true`;
 - 60-source 30/30 response-validation cohort frozen before target calls;
 - no primary target calls before full study lock;
 - no physician packet freeze while target infrastructure failures remain;
