@@ -80,6 +80,7 @@ def test_hbp_150_casepack_finalizes_crossfit(tmp_path):
     assert all(r["construct_reviewer"] == reviewer(r["source_id"]) for r in rows)
     assert all(r["framework_variant_source"] == "preconstructed" for r in rows)
     assert all(r["framework_structural_valid"] == "true" for r in rows)
+    assert all(r["framework_human_confirmed"] == "true" for r in rows)
     assert all(r["primary_perturbation_id"] != r["source_variant_id"] for r in rows)
     private = [json.loads(x) for x in (vault / "casepack/primary_hbp_150.private.jsonl").read_text().splitlines()]
     assert len(private) == 150
@@ -123,6 +124,7 @@ def test_real_pocqi_50_casepack_is_executable(tmp_path):
     assert all(r["construct_reviewer"] == reviewer(r["source_id"]) for r in rows)
     assert all(r["framework_variant_source"] == "preconstructed" for r in rows)
     assert all(r["framework_structural_valid"] == "true" for r in rows)
+    assert all(r["framework_human_confirmed"] == "true" for r in rows)
     assert all(r["primary_perturbation_id"] != r["source_variant_id"] for r in rows)
 
 
