@@ -75,8 +75,8 @@ def test_single_judge_analysis_reports_missingness_ctd_and_thresholds(tmp_path):
     overall = got["overall"]
     assert overall["binary_reference_cells_total"] == "3"
     assert overall["available_judge_cells"] == "2"
-    assert overall["missing_or_failed_judge_cells"] == "1"
-    assert overall["physician_reference_cannot_determine"] == "1"
+    assert float(overall["missing_or_failed_judge_cells"]) == 1.0
+    assert float(overall["physician_reference_cannot_determine"]) == 1.0
     assert overall["sensitivity_point_meets_threshold"] == "True"
     assert overall["specificity_point_meets_threshold"] == "True"
     assert "same_provider_target_judge=true" in got
