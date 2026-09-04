@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Select the shared physician calibration cohort before automated judge scoring.
+"""Build the cross-fitted physician response-review frame.
 
-The same 60/150 source cases are selected for all four target models, balanced
-30/30 across perturbation families. For each case, the prespecified construct
-reviewer is excluded from response review. The other two physicians independently
-rate every original/perturbed target response for that case.
+For the primary study, the input casepack MUST already be the frozen 60-source
+response-validation cohort selected before target execution: 30 missing-information
+and 30 conflicting-evidence sources. All 60 are used. For external replication,
+--all-cases uses every source in its separately frozen casepack.
 """
 from __future__ import annotations
 
@@ -84,16 +84,22 @@ def main() -> None:
     if args.all_cases:
         chosen_cases = sorted(cases, key=case_rank)
     else:
-        chosen_cases = []
-        for family in FAMILIES:
-            pool = sorted(
-                [cid for cid, c in cases.items() if str(c["primary_family"]) == family],
-                key=case_rank,
+        expected_cases = args.cases_per_family * len(FAMILIES)
+        if len(cases) != expected_cases:
+            raise RuntimeError(
+                f"primary response-validation casepack must already contain exactly "
+                f"{expected_cases} cases selected before target execution; got {len(cases)}"
             )
-            if len(pool) < args.cases_per_family:
-                raise RuntimeError(f"family {family} has only {len(pool)} cases; needs {args.cases_per_family}")
-            chosen_cases.extend(pool[: args.cases_per_family])
-        chosen_cases = sorted(chosen_cases, key=case_rank)
+        counts = {
+            family: sum(str(c["primary_family"]) == family for c in cases.values())
+            for family in FAMILIES
+        }
+        expected_counts = {family: args.cases_per_family for family in FAMILIES}
+        if counts != expected_counts:
+            raise RuntimeError(
+                f"primary response-validation casepack must be balanced {expected_counts}; got {counts}"
+            )
+        chosen_cases = sorted(cases, key=case_rank)
 
     selected_private, public = [], []
     seen_opaque = set()
