@@ -93,22 +93,17 @@ def _http_json(
         raise TransportError(repr(exc)) from exc
 
 
-def _openai_text(data: dict) -> str:
-    try:
-        content = data["choices"][0]["message"].get("content", "")
-    except Exception:
-        return ""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for item in content:
-            if isinstance(item, dict):
-                parts.append(str(item.get("text") or item.get("content") or ""))
-            else:
-                parts.append(str(item))
-        return "".join(parts)
-    return str(content or "")
+def _responses_text(data: dict) -> str:
+    if isinstance(data.get("output_text"), str):
+        return str(data["output_text"])
+    parts = []
+    for item in data.get("output", []) or []:
+        if not isinstance(item, dict) or item.get("type") != "message":
+            continue
+        for block in item.get("content", []) or []:
+            if isinstance(block, dict) and block.get("type") in {"output_text", "text"}:
+                parts.append(str(block.get("text", "")))
+    return "".join(parts)
 
 
 def _anthropic_text(data: dict) -> str:
@@ -141,34 +136,34 @@ def _request_for_provider(
         raise ValueError(f"unsupported reasoning_effort {effort!r}")
 
     if provider == "openai":
-        endpoint = "https://api.openai.com/v1/chat/completions"
+        endpoint = "https://api.openai.com/v1/responses"
         payload = {
             "model": model,
-            "messages": [
+            "input": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "max_completion_tokens": int(max_output_tokens),
+            "max_output_tokens": int(max_output_tokens),
         }
         if effort != "provider_default":
-            payload["reasoning_effort"] = effort
+            payload["reasoning"] = {"effort": effort}
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        return endpoint, headers, payload, _openai_text
+        return endpoint, headers, payload, _responses_text
 
     if provider == "xai":
-        endpoint = "https://api.x.ai/v1/chat/completions"
+        endpoint = "https://api.x.ai/v1/responses"
         payload = {
             "model": model,
-            "messages": [
+            "input": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "max_tokens": int(max_output_tokens),
+            "max_output_tokens": int(max_output_tokens),
         }
         if effort != "provider_default":
-            payload["reasoning_effort"] = effort
+            payload["reasoning"] = {"effort": effort}
         headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        return endpoint, headers, payload, _openai_text
+        return endpoint, headers, payload, _responses_text
 
     if provider == "anthropic":
         endpoint = "https://api.anthropic.com/v1/messages"
