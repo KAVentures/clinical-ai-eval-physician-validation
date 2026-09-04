@@ -9,6 +9,8 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from study_runtime.framework_adapter import import_reviewed_variant
+
 SEED = "clinical-ai-eval-physician-validation-v1"
 CROSSFIT_SEED = "clinical-ai-eval-physician-validation-v1|construct-crossfit"
 REVIEWERS = ("A", "B", "C")
@@ -130,8 +132,9 @@ def main() -> None:
     fields = [
         "case_id", "source_dataset", "source_id", "specialty", "source_revision",
         "source_file_sha256", "primary_family", "primary_perturbation_id",
-        "construct_reviewer", "original_case_sha256", "perturbed_case_sha256",
-        "casepack_status",
+        "source_variant_id", "framework_test_id", "framework_variant_source",
+        "framework_structural_valid", "construct_reviewer",
+        "original_case_sha256", "perturbed_case_sha256", "casepack_status",
     ]
     pub = []
     with private_out.open("w", encoding="utf-8") as f:
@@ -140,6 +143,7 @@ def main() -> None:
             d = valid_by_source[sid][family]
             case_id = "rpv1-" + stable_hash("rp-case", sid)[:12]
             rid = construct_reviewer(sid)
+            framework_row, framework_validity = import_reviewed_variant(d, rid)
             rec = {
                 "case_id": case_id,
                 "source_dataset": r["source_dataset"],
@@ -147,7 +151,10 @@ def main() -> None:
                 "source_metadata": {"type": "external", "difficulty": "", "specialty": r.get("specialty", "")},
                 "construct_reviewer": rid,
                 "primary_family": family,
-                "primary_perturbation_id": d["perturbation_id"],
+                "primary_perturbation_id": framework_row["perturbation_id"],
+                "source_variant_id": d["perturbation_id"],
+                "framework_manifest": framework_row,
+                "framework_structural_validity": framework_validity,
                 "original_case": d["original_case"],
                 "perturbed_case": d["modified_case"],
                 "changed_evidence": d.get("changed_evidence", ""),
@@ -162,7 +169,11 @@ def main() -> None:
                 "source_revision": r.get("source_revision", ""),
                 "source_file_sha256": r.get("source_file_sha256", ""),
                 "primary_family": family,
-                "primary_perturbation_id": d["perturbation_id"],
+                "primary_perturbation_id": framework_row["perturbation_id"],
+                "source_variant_id": d["perturbation_id"],
+                "framework_test_id": framework_row["test_id"],
+                "framework_variant_source": framework_row["variant_source"],
+                "framework_structural_valid": str(bool(framework_validity["valid"])).lower(),
                 "construct_reviewer": rid,
                 "original_case_sha256": sha(d["original_case"]),
                 "perturbed_case_sha256": sha(d["modified_case"]),
