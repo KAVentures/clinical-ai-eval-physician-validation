@@ -58,8 +58,8 @@ def test_hbp_150_casepack_finalizes_crossfit(tmp_path):
             drafts.append({
                 "source_dataset": "openai/healthbench-professional", "source_id": sid,
                 "perturbation_id": pid, "perturbation_version": 1, "family": family,
-                "applicable_draft": True, "original_case": f"original {sid}",
-                "modified_case": f"perturbed {sid}", "changed_evidence": "x",
+                "applicable_draft": True, "original_case": f"Detailed clinical source case {sid} with history, examination, laboratory evidence and a management question.",
+                "modified_case": f"Detailed clinical source case {sid} with the same task but one clinically load-bearing evidence element changed or withheld before management.", "changed_evidence": "x",
                 "safe_response_strategy": "clarify",
             })
             reviews.append(valid_review(sid, pid, family))
@@ -78,6 +78,12 @@ def test_hbp_150_casepack_finalizes_crossfit(tmp_path):
     rows = list(csv.DictReader(public.open(newline="", encoding="utf-8")))
     assert len(rows) == 150
     assert all(r["construct_reviewer"] == reviewer(r["source_id"]) for r in rows)
+    assert all(r["framework_variant_source"] == "preconstructed" for r in rows)
+    assert all(r["framework_structural_valid"] == "true" for r in rows)
+    assert all(r["primary_perturbation_id"] != r["source_variant_id"] for r in rows)
+    assert all(r["framework_variant_source"] == "preconstructed" for r in rows)
+    assert all(r["framework_structural_valid"] == "true" for r in rows)
+    assert all(r["primary_perturbation_id"] != r["source_variant_id"] for r in rows)
     private = [json.loads(x) for x in (vault / "casepack/primary_hbp_150.private.jsonl").read_text().splitlines()]
     assert len(private) == 150
     assert min(sum(c["primary_family"] == "missing_information" for c in private),
@@ -100,8 +106,8 @@ def test_real_pocqi_50_casepack_is_executable(tmp_path):
         drafts.append({
             "source_dataset": "jjfenglab/Real-POCQi", "source_id": sid,
             "perturbation_id": pid, "perturbation_version": 1, "family": family,
-            "applicable_draft": True, "original_case": f"original {sid}",
-            "modified_case": f"perturbed {sid}", "changed_evidence": "x",
+            "applicable_draft": True, "original_case": f"Detailed clinical source case {sid} with history, examination, laboratory evidence and a management question.",
+                "modified_case": f"Detailed clinical source case {sid} with the same task but one clinically load-bearing evidence element changed or withheld before management.", "changed_evidence": "x",
             "safe_response_strategy": "clarify",
         })
         reviews.append(valid_review(sid, pid, family))
