@@ -1,14 +1,19 @@
 # End-to-end runbook
 
-This runbook is the operational source of truth for the preregistered study. Raw benchmark text, modified cases, target responses, and physician packets live only in a private study vault outside this repository.
+This is the operational source of truth for the preregistered study. Follow phases in order. Raw benchmark text, transformed cases, model responses, and physician packets live only in a private study vault outside this repository.
 
-## Phase 0 — install, governance, reviewers, secrets
+The study validates the scoped Clinical-AI-Eval framework described in `protocol/FRAMEWORK_VALIDATION_SCOPE.md`.
 
-Install:
+## Phase 0 — install, rehearse, governance, reviewers, secrets
+
+Use Python 3.11.
 
 ~~~bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 python -m pip install -e ".[test]"
-pytest -q
+python scripts/rehearse_study.py
 ~~~
 
 Define the private vault:
@@ -18,17 +23,21 @@ export STUDY_VAULT=/secure/path/clinical-ai-eval-physician-validation-v1
 mkdir -p "$STUDY_VAULT"
 ~~~
 
-Store keys outside Git:
+Store provider keys outside Git:
 
 ~~~bash
 export MEDROBUST_KEYS_PATH=/secure/path/API_KEYS.local.md
 ~~~
 
-Before physician data collection, record the appropriate local ethics/research-governance determination described in protocol/ETHICS_AND_GOVERNANCE.md.
+Before physician data collection:
 
-Freeze the identities A, B, and C before response unblinding. The cross-fitted role is assigned by source case, not permanently by physician.
+- document the applicable local ethics/research-governance determination;
+- freeze physician identities A, B, and C;
+- document reviewer participation/consent, compensation, conflicts and data retention.
 
-## Phase 1 — pinned source queues
+Roles are cross-fitted by source case; no physician is globally “the construct doctor” or “the response doctor.”
+
+## Phase 1 — reconstruct pinned source queues
 
 ~~~bash
 python scripts/select_cases.py --vault "$STUDY_VAULT"
@@ -36,17 +45,17 @@ python scripts/select_cases.py --vault "$STUDY_VAULT"
 
 Expected:
 
-- exactly 236 HealthBench Professional consult candidates in data/healthbench_professional_candidate_queue.csv;
-- a deterministic patient/decision Real-POCQi candidate reservoir in data/real_pocqi_candidate_queue.csv;
-- raw source records only below $STUDY_VAULT/sources/.
+- exactly 236 HealthBench Professional consult candidates in `data/healthbench_professional_candidate_queue.csv`;
+- a deterministic Real-POCQi candidate reservoir in `data/real_pocqi_candidate_queue.csv`;
+- raw source records only below `$STUDY_VAULT/sources/`.
 
-Both source files are revision- and SHA-pinned. A mismatch stops execution.
+Both sources are revision/file-hash pinned. Any digest or expected-count mismatch stops the run.
 
-## Phase 2 — authoring technical dry-run
+## Phase 2 — perturbation-author technical dry-run
 
-The authoring model is construction tooling only. It is not ground truth and is not a primary judge.
+The authoring model is construction tooling, not clinical ground truth.
 
-While authoring_frozen is false, only a limited dry-run is permitted:
+While `authoring_frozen: false`, only a small dry-run is allowed:
 
 ~~~bash
 python scripts/draft_perturbations.py \
@@ -57,7 +66,7 @@ python scripts/draft_perturbations.py \
   --limit 5
 ~~~
 
-Inspect the five outputs for schema adherence, minimal edits, and obvious task drift. Delete dry-run outputs before the full authoring run.
+Inspect those drafts only for technical/schema/task-drift failures. Delete dry-run outputs before the full authoring run.
 
 Then set:
 
@@ -65,15 +74,13 @@ Then set:
 authoring_frozen: true
 ~~~
 
-Commit the config and authoring prompt before generating the full reservoir.
-
-Run author preflight:
+Commit the authoring config/prompt before generating the full reservoir.
 
 ~~~bash
 python scripts/preflight.py --phase authoring
 ~~~
 
-## Phase 3 — full perturbation drafting
+## Phase 3 — full primary perturbation drafting
 
 ~~~bash
 python scripts/draft_perturbations.py \
@@ -82,11 +89,11 @@ python scripts/draft_perturbations.py \
   --models configs/model_panel.yaml
 ~~~
 
-Drafts remain invalid until physician construct review.
+Drafts remain scientifically invalid until physician construct review.
 
-## Phase 4 — cross-fitted construct review
+## Phase 4 — cross-fitted construct validation and 150-case casepack
 
-Generate the first review wave:
+Generate the first construct-review wave:
 
 ~~~bash
 python scripts/make_construct_packets.py \
@@ -95,9 +102,9 @@ python scripts/make_construct_packets.py \
   --mode first
 ~~~
 
-Each source goes to exactly one prespecified construct reviewer A/B/C. The other two physicians must not see that source pair because they are reserved for blinded response review.
+Each source goes to one deterministic construct reviewer. The other two physicians must not see that source pair before response review.
 
-After completed review files are returned, attempt finalization:
+After A/B/C return their assigned files:
 
 ~~~bash
 python scripts/finalize_casepack.py \
@@ -110,7 +117,7 @@ python scripts/finalize_casepack.py \
   --public-out data/primary_casepack_manifest.csv
 ~~~
 
-If the script reports NEEDS_FALLBACK_REVIEW, generate only unresolved alternate variants:
+If finalization reports `NEEDS_FALLBACK_REVIEW`, expose only deterministic unreviewed alternatives:
 
 ~~~bash
 python scripts/make_construct_packets.py \
@@ -122,9 +129,9 @@ python scripts/make_construct_packets.py \
   --prior-review "$STUDY_VAULT/review/construct/construct_review_C.csv"
 ~~~
 
-Add completed fallback files as additional --review arguments to finalization. Repeat deterministically if needed.
+Pass completed fallback files as additional `--review` arguments to finalization.
 
-If a physician requests a material revision rather than rejection, create a new immutable perturbation version:
+A material physician edit creates a new immutable version:
 
 ~~~bash
 python scripts/revise_perturbation.py \
@@ -137,27 +144,55 @@ python scripts/revise_perturbation.py \
   --public-manifest data/perturbation_drafts_manifest.csv
 ~~~
 
-The new version requires fresh construct review.
+The new version requires fresh review.
 
-Expected final primary casepack: exactly 150 cases with source quotas 53/38/59 and at least 30 cases from each perturbation family.
+Expected primary construct-valid pack: exactly 150 sources with HBP quotas 53/38/59 and at least 30 sources in each perturbation family.
 
-## Phase 5 — target/judge endpoint dry-runs and full lock
+## Phase 5 — freeze the 60-source response-validation cohort BEFORE target calls
 
-Dry-run every configured provider/model using non-study prompts and confirm that resolved model IDs, endpoint, reasoning settings, HTTP status, and request hashes are populated.
+The 150-source pack validates construct generation and source breadth. The physician-powered criterion/model-response analysis uses a prespecified 60-source subset.
 
-Run the sample-size simulation and retain its output:
+~~~bash
+python scripts/select_response_validation_cases.py \
+  --casepack "$STUDY_VAULT/casepack/primary_hbp_150.private.jsonl" \
+  --vault "$STUDY_VAULT" \
+  --public-manifest data/response_validation_case_selection.csv
+~~~
+
+Expected:
+
+- 60 unique sources;
+- 30 missing-information;
+- 30 conflicting-evidence;
+- private target casepack at `$STUDY_VAULT/casepack/response_validation_60.private.jsonl`.
+
+This happens before any target response exists.
+
+## Phase 6 — live endpoint smoke tests, environment capture and full study lock
+
+Using non-study prompts, technically verify every configured author/target/judge endpoint and credential. Confirm that provider-resolved model IDs, reasoning settings, HTTP status and request hashes are populated.
+
+Run the design simulation:
 
 ~~~bash
 python analysis/precision_simulation.py --out results/precision_simulation.csv
 ~~~
 
-When provider IDs/settings are confirmed, set:
+Capture the exact execution environment:
+
+~~~bash
+python scripts/capture_environment.py
+~~~
+
+This creates `data/environment_lock.txt` and `data/environment_metadata.json`.
+
+When the live IDs/settings are confirmed, set:
 
 ~~~yaml
 frozen: true
 ~~~
 
-Commit the locked protocol/config/prompts/case manifest.
+Commit the frozen protocol/config/prompts, 150-case public manifest, 60-case response-selection manifest, environment lock and analysis code.
 
 Run target preflight:
 
@@ -165,47 +200,53 @@ Run target preflight:
 python scripts/preflight.py --phase targets
 ~~~
 
-Create the study lock using the exact commit that contains the frozen materials:
+Create the cryptographic study lock using the exact 40-character commit containing those frozen materials:
 
 ~~~bash
 python scripts/freeze_study.py \
   --git-commit FULL_40_CHARACTER_STUDY_COMMIT
 ~~~
 
-Commit data/study_lock.json before any primary target call. Any later change to a locked artifact is a protocol deviation.
+Commit `data/study_lock.json` **before the first primary target call**.
 
-## Phase 6 — target execution
+Any change afterward to a locked artifact is a protocol deviation.
+
+## Phase 7 — run four targets on the 60-source cohort
 
 ~~~bash
 python scripts/run_targets.py \
-  --casepack "$STUDY_VAULT/casepack/primary_hbp_150.private.jsonl" \
+  --casepack "$STUDY_VAULT/casepack/response_validation_60.private.jsonl" \
   --models configs/model_panel.yaml \
   --vault "$STUDY_VAULT" \
   --public-manifest data/target_response_manifest.csv
 ~~~
 
-Expected: 150 × 2 × 4 = 1,200 response cells.
+Expected:
 
-If transport_failure or provider_failure remains, correct the infrastructure problem and rerun with --resume. Do not proceed to physician calibration until those statuses are gone.
+60 sources × 2 presentations × 4 targets = **480 target response cells**.
 
-A successful API response containing no usable target text is model_output_failure and is retained as a separate target failure endpoint.
+If `transport_failure` or `provider_failure` remains, fix infrastructure and rerun with `--resume`. Do not freeze physician packets until those infrastructure failures are resolved.
 
-## Phase 7 — freeze physician calibration before judges
+A successful API response with no usable text is `model_output_failure` and remains a separate product failure endpoint.
+
+## Phase 8 — create the 480 cross-fitted physician response cells
 
 ~~~bash
 python scripts/select_physician_calibration.py \
   --responses "$STUDY_VAULT/responses/target_responses.private.jsonl" \
-  --casepack "$STUDY_VAULT/casepack/primary_hbp_150.private.jsonl" \
+  --casepack "$STUDY_VAULT/casepack/response_validation_60.private.jsonl" \
   --vault "$STUDY_VAULT" \
   --public-manifest data/physician_calibration_selection.csv
 ~~~
 
+Because the target casepack already contains the frozen 30/30 cohort, all 60 sources are selected.
+
 Expected:
 
-- 60 source cases: 30 missing-information + 30 conflict;
 - 480 unique response cells;
-- exactly two response reviewers per cell;
-- construct reviewer excluded from both response reviewers.
+- two blinded response reviewers per cell;
+- the source's construct reviewer excluded from both response reviewers;
+- 960 independent physician ratings total.
 
 Create reviewer packets:
 
@@ -215,38 +256,33 @@ python scripts/make_response_packets.py \
   --out-dir "$STUDY_VAULT/review/responses"
 ~~~
 
-Each physician gets only their assigned cells. Do not exchange packets.
+A/B/C complete only their assigned packets and do not discuss cells before independent submissions are locked.
 
-## Phase 8 — automated judges
+## Phase 9 — run the one automated evaluator on the SAME 480 cells
 
-Run preflight:
+The confirmatory automated layer is **Grok 4.6 only**. It is being validated, not treated as ground truth.
 
 ~~~bash
 python scripts/preflight.py --phase judges
 ~~~
 
-Run primary blinded judges:
-
 ~~~bash
 python scripts/run_judges.py \
-  --responses "$STUDY_VAULT/responses/target_responses.private.jsonl" \
-  --casepack "$STUDY_VAULT/casepack/primary_hbp_150.private.jsonl" \
+  --units "$STUDY_VAULT/review/physician_calibration_units.private.jsonl" \
   --models configs/model_panel.yaml \
   --vault "$STUDY_VAULT" \
   --public-manifest data/judge_manifest.csv
 ~~~
 
-After primary outputs are frozen, run the prespecified secondary blinded/cued sensitivity conditions using --include-secondary.
+Expected: exactly 480 Grok-4.6 evaluations.
 
-Judge API/format failures remain explicit missing measurements. They are never coerced to 0.
+Judge API/format failures remain explicit missing measurements and are never coerced to 0.
 
-## Phase 9 — independent physician response review and locked consensus
+No other proprietary judge is part of the confirmatory study. An open-weight clinical judge may be added only if it satisfied the prespecified public/version-pinnable rule before study lock.
 
-A/B/C independently complete only their assigned response_review_*.csv packet.
+## Phase 10 — lock physician reference and resolve only disagreements/indeterminacy
 
-CANNOT_DETERMINE is allowed for the primary endpoint and is never equivalent to 0.
-
-After all independent files are locked:
+After all three independent physician packet files are locked:
 
 ~~~bash
 python scripts/response_adjudication.py prepare \
@@ -257,7 +293,7 @@ python scripts/response_adjudication.py prepare \
   --out "$STUDY_VAULT/review/responses/response_consensus.csv"
 ~~~
 
-The generated consensus sheet contains only cells with disagreement or at least one CANNOT_DETERMINE. The two response reviewers for each cell resolve it together; the construct reviewer does not participate.
+Only cells where the two assigned response reviewers disagree or use `CANNOT_DETERMINE` appear in the consensus file. The same two reviewers resolve those cells after their independent ratings are locked. The construct reviewer does not participate.
 
 Finalize:
 
@@ -265,21 +301,23 @@ Finalize:
 python scripts/response_adjudication.py finalize \
   --units "$STUDY_VAULT/review/physician_calibration_units.private.jsonl" \
   --review "$STUDY_VAULT/review/responses/response_review_A.csv" \
-  --review "$STUDY_VAULT/review/responses/response_review_B.csv" \
+  --review "$STYDY_VAULT/review/responses/response_review_B.csv" \
   --review "$STUDY_VAULT/review/responses/response_review_C.csv" \
   --consensus "$STUDY_VAULT/review/responses/response_consensus.csv" \
   --out "$STUDY_VAULT/review/physician_reference.private.csv"
 ~~~
 
-Consensus may remain CANNOT_DETERMINE. Those cells are reported and excluded from binary judge operating-characteristic denominators.
+**Before running:** correct the environment-variable spelling in every command if manually copied; the canonical variable is `STUDY_VAULT`.
 
-## Phase 10 — primary and full SAP analyses
+Consensus may remain `CANNOT_DETERMINE`. Such cells are reported and excluded from binary operating-characteristic denominators.
+
+## Phase 11 — preregistered analyses
 
 ~~~bash
 python scripts/preflight.py --phase analysis --vault "$STUDY_VAULT"
 ~~~
 
-Primary judge validation:
+Primary automated-layer validation:
 
 ~~~bash
 python analysis/analyze_judge_validation.py \
@@ -291,7 +329,7 @@ python analysis/analyze_judge_validation.py \
   --seed 20260903
 ~~~
 
-Full preregistered secondary analyses:
+Full SAP:
 
 ~~~bash
 python analysis/full_sap_analysis.py \
@@ -304,9 +342,13 @@ python analysis/full_sap_analysis.py \
   --seed 20260903
 ~~~
 
-## Phase 11 — post-response construct reliability audit
+Primary automated-layer outputs include sensitivity, specificity, PPV/NPV, balanced accuracy, agreement, kappa, clustered CIs, framework-threshold comparison, and Grok-on-Grok versus Grok-on-other-provider performance.
 
-Only after the physician response reference is frozen:
+Target-model comparisons remain physician-anchored.
+
+## Phase 12 — post-response construct reliability audit
+
+Only after the response reference is frozen:
 
 ~~~bash
 python scripts/make_construct_reliability_audit.py \
@@ -316,7 +358,7 @@ python scripts/make_construct_reliability_audit.py \
   --out-dir "$STUDY_VAULT/review/construct_reliability"
 ~~~
 
-After completion:
+Analyze:
 
 ~~~bash
 python analysis/analyze_construct_reliability.py \
@@ -326,45 +368,60 @@ python analysis/analyze_construct_reliability.py \
   --out results/construct_reliability.csv
 ~~~
 
-This audit estimates second-physician confirmation of the perturbation construct after response blinding can no longer be contaminated.
+This audit occurs after response blinding can no longer be contaminated.
 
-## Phase 12 — Real-POCQi external replication
+## Phase 13 — Real-POCQi external-dataset replication
 
-Use the pinned private Real-POCQi candidate file as input to the same drafting and cross-fitted construct-review process.
+Use the already pinned Real-POCQi candidate queue and the same frozen definitions. Freeze the external 50-case pack **before inspecting primary outcome results**.
 
-Finalize:
+Draft, cross-fit construct-review and finalize:
 
 ~~~bash
 python scripts/finalize_real_pocqi_casepack.py \
   --drafts "$STUDY_VAULT/drafts/real_pocqi_perturbations.private.jsonl" \
   --candidate-queue data/real_pocqi_candidate_queue.csv \
-  --review REVIEW_FILES_REPEATED_AS_NEEDED \
+  --review REVIEW_FILE_1 --review REVIEW_FILE_2 --review REVIEW_FILE_3 \
   --vault "$STUDY_VAULT" \
   --public-out data/real_pocqi_casepack_manifest.csv
 ~~~
 
-Run the same four frozen targets and judges without tuning from primary results.
+Run the same four frozen target models on all 50 external sources:
 
-For external physician response review, call select_physician_calibration.py with --all-cases. All 50 external source cases are reviewed:
+50 × 2 × 4 = **400 target response cells**.
 
-50 × 2 × 4 = 400 unique response cells and 800 cross-fitted physician ratings.
+Create physician review units with:
 
-Analyze the external cohort separately. Do not alter primary thresholds, prompts, panels, or endpoint definitions based on external results.
+~~~bash
+python scripts/select_physician_calibration.py \
+  --responses "$STUDY_VAULT/responses/real_pocqi_target_responses.private.jsonl" \
+  --casepack "$STUDY_VAULT/casepack/external_real_pocqi_50.private.jsonl" \
+  --vault "$STUDY_VAULT/external" \
+  --public-manifest data/real_pocqi_physician_selection.csv \
+  --all-cases
+~~~
+
+The external replication is physician-anchored and analyzed separately. Grok automated scoring is **not required** for the external cohort; omitting it saves cost and does not alter the primary automated-layer validation.
+
+Do not tune prompts, thresholds, model configuration or endpoint definitions from primary results.
 
 ## Non-negotiable checks
 
-- no raw HBP text or physician packets in Git;
+- no raw HealthBench Professional text or physician packets in Git;
 - no API keys in Git;
-- no target calls before construct-valid casepack and full study lock;
-- no calibration selection with unresolved transport/provider target failures;
-- calibration selection before automated judge results are inspected;
-- target responses frozen before judges;
-- no construct reviewer response-rates the same source case;
+- 150-case construct-valid casepack frozen before response-cohort selection;
+- 60-source 30/30 response-validation cohort frozen before target calls;
+- no primary target calls before full study lock;
+- no physician packet freeze while target infrastructure failures remain;
+- exactly 480 primary target cells;
+- exactly 480 primary Grok judge cells;
+- construct reviewer never response-rates the same source;
 - exactly two independent blinded physician ratings per response cell;
 - consensus only after independent submissions are locked;
-- CANNOT_DETERMINE is never coerced negative;
-- cued judges never enter the primary blinded quorum;
-- judge failures never become negative labels;
-- safety/helpfulness remain separate;
-- every provider setting and model identifier is frozen and reported;
-- deviations are timestamped and reported.
+- `CANNOT_DETERMINE` is never coerced negative;
+- judge failures are never coerced negative;
+- safety and helpfulness remain separate;
+- Grok judging Grok is reported separately from Grok judging other providers;
+- exact environment/model/provider provenance is locked and reported;
+- deviations are timestamped and disclosed.
+
+See `REPRODUCIBILITY.md` for clean-room reproduction instructions.
