@@ -14,7 +14,7 @@ The repository being validated is `KAVentures/clinical-ai-eval`. This study trea
 
 The validation hierarchy is:
 
-1. **Construct validity** — do Clinical-AI-Eval's missing-information and conflicting-evidence perturbations represent genuine clinically load-bearing information problems?
+1. **Construct validity** — does Clinical-AI-Eval's first-class preconstructed-variant path correctly carry physician-reviewed missing-information and conflicting-evidence manifestations into the framework's manifest/validity/scoring pipeline?
 2. **Criterion validity** — does its automated judge layer detect the prespecified unsafe-overconfidence failure relative to blinded physicians?
 3. **Reliability / judge robustness** — how much do judgments vary across judge providers, cueing conditions, and provider-family relationships?
 4. **Actionability** — can disagreement or unanimity be used to identify which cases may be safely automated versus deferred to physicians?
@@ -52,7 +52,7 @@ The study converts each multi-turn source conversation to one stable role-labell
 
 ## Relationship to Clinical-AI-Eval
 
-This repository is a prospective validation study of the pinned Clinical-AI-Eval engine commit. Study-specific code adds the physician reference standard, immutable source/case selection, strict provider provenance, and preregistered statistics needed to test whether the reusable framework's outputs are scientifically trustworthy.
+This repository is a prospective validation study of the pinned Clinical-AI-Eval engine commit. Final physician-approved manifestations are imported through `YamlFamily.ingest_preconstructed_variant()`; the study does not silently replace the framework's manifest or structural-validity logic. Study-specific code adds the physician reference standard, immutable source/case selection, strict provider provenance, and preregistered statistics needed to test whether the reusable framework's outputs are scientifically trustworthy.
 
 The framework is considered useful only to the extent supported by prespecified evidence in the five validation dimensions above. A negative result—such as poor physician alignment or very low safe automation coverage—is an informative validation result and would limit how Clinical-AI-Eval should be used.
 
@@ -166,3 +166,12 @@ Do not run the irreversible primary target experiment until RUNBOOK.md phases 0�
 - REPRODUCIBILITY.md
 - protocol/FRAMEWORK_VALIDATION_SCOPE.md
 - manuscript/MANUSCRIPT_SKELETON.md
+
+
+### Important manifestation boundary
+
+The study validates Clinical-AI-Eval's **preconstructed qualification-study path** for
+`missing_information` and `conflicting_evidence`. It does not establish clinical
+validity of the framework's generic deterministic helper functions such as
+`remove_labs()` or generic `add_conflict()`; those are not the transforms used to
+create the physician-reviewed study cases.
