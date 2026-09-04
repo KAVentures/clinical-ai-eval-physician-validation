@@ -11,7 +11,7 @@ Clinical AI evaluations increasingly use LLMs as automated judges, but evaluator
 To validate Clinical-AI-Eval as a reproducible clinical-AI assurance framework by testing the clinical validity of its perturbations, the criterion validity and robustness of its automated judge layer against blinded physicians, the usefulness of its defer-to-human logic, and external reproducibility; target-model robustness is a secondary application of the validated framework.
 
 ### Methods
-Prospective paired perturbation study using 150 physician-validated HealthBench Professional-derived care-consult source cases. Each source has one locked primary perturbation: missing information or conflicting evidence. Four provider-diverse target models answer original and perturbed presentations. Three provider-diverse automated judges form the blinded primary judge panel. A shared 60-source physician calibration cohort spans all four targets and both presentations, yielding 480 unique response cells. For each source, one of three physicians performs construct validation and the other two—who have not seen that source's original/perturbed pair—independently rate its AI responses. Discordant or indeterminate primary labels are resolved only after both independent ratings are locked. External replication uses 50 construct-valid Real-POCQi sources.
+Prospective framework-validation study using a 150-source physician-validated HealthBench Professional-derived construct cohort and a deterministic 60-source response-validation subset. Four provider-diverse target models answer original and perturbed presentations only for the 60-source subset, yielding 480 response cells. Every response cell receives two independent cross-fitted physician ratings and one blinded Grok 4.6 automated-evaluator score. Grok 4.6 is prospectively validated against physicians rather than treated as ground truth. External replication uses 50 construct-valid Real-POCQi sources with physician-anchored target evaluation.
 
 ### Results
 [LOCKED PLACEHOLDER — populate only from reproducible analysis outputs.]
@@ -41,7 +41,7 @@ Describe the prospective validation of the pinned Clinical-AI-Eval framework and
 
 - perturbation layer -> construct validity;
 - automated judge layer -> criterion validity versus physicians;
-- multi-provider/cued conditions -> evaluator reliability and bias sensitivity;
+- same-provider Grok-target versus other-provider scoring -> evaluator robustness;
 - unanimity/disagreement routing -> actionability and safe defer-to-human coverage;
 - Real-POCQi -> external robustness;
 - target-model comparisons -> secondary application of the validated measurement system.
@@ -134,16 +134,16 @@ Transport/provider failures must be resolved before the physician calibration fr
 ### Automated judges
 Describe:
 
-- three-provider blinded primary panel;
-- panel ANY and panel MAJORITY as separate endpoints;
+- one prespecified blinded automated evaluator: Grok 4.6;
 - study-specific blinded judge prompt;
-- fourth-provider blinded sensitivity judge;
-- matching rubric-aware/cued secondary conditions;
-- explicit judge API/format failure handling.
+- exact 480-cell overlap with the physician-reference cohort;
+- same-provider Grok-on-Grok audit;
+- explicit judge API/format failure handling;
+- no proprietary multi-judge panel in the confirmatory study.
 
 Judge failures are missing measurements and never become negative labels.
 
-If an eligible open-weight clinical judge is publicly released and version-pinnable before study lock, include it only as a prespecified secondary sensitivity analysis. It does not replace physicians or enter the primary three-judge panel. If no eligible public release exists at lock, omit this analysis rather than selecting a post-hoc substitute.
+If an eligible open-weight clinical judge is publicly released and version-pinnable before study lock, include it only as a prespecified secondary sensitivity analysis. It does not replace physicians or Grok 4.6. If no eligible public release exists at lock, omit this analysis rather than selecting a post-hoc substitute.
 
 ### Physician response-reference cohort
 Describe the shared 60-source sample:
@@ -208,9 +208,8 @@ Secondary:
 - Holm-adjusted target contrasts;
 - binomial GEE;
 - target × presentation × perturbation-family interaction;
-- judge-provider × target-provider matrix;
-- blinded-versus-cued comparison;
-- selective automation;
+- Grok-on-Grok versus Grok-on-other-provider operating-characteristic audit;
+- successful automated-measurement coverage and failure rate;
 - subgroup descriptives;
 - target output failures;
 - automated full-cohort estimates labeled separately from physician-rated estimates.
@@ -282,13 +281,9 @@ Primary table:
 
 | Endpoint | Available n | Sensitivity | Specificity | Balanced accuracy | PPV | NPV | Kappa |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Judge 1 | | | | | | | |
-| Judge 2 | | | | | | | |
-| Judge 3 | | | | | | | |
-| Panel ANY | | | | | | | |
-| Panel MAJORITY | | | | | | | |
+| Grok 4.6 | | | | | | | |
 
-Report judge failures/missing cells. Panel endpoints require a complete three-judge trio.
+Report judge failures/missing cells and automated-measurement coverage. Grok 4.6 is compared directly with the physician reference.
 
 ### Target-model robustness on physician labels
 For each target report:
@@ -307,18 +302,13 @@ Report paired differences in perturbation risk difference and Holm-adjusted pair
 Report family-specific effects and the prespecified GEE interaction.
 
 ### Judge/provider effects
-Report the judge-provider × target-provider error matrix and same-provider indicator descriptively.
+Report Grok-4.6 judge performance on Grok target responses versus non-Grok target responses and by target provider.
 
 ### Cueing
-Report blinded-versus-cued positive-rate difference and change in sensitivity/specificity.
 
-### Selective automation
-Report the prespecified unanimity-defer operating point:
 
-- coverage;
-- number deferred;
-- error among auto-judged cells.
-
+### Automated scoring coverage
+Report successful Grok-4.6 measurement coverage, missing/failed measurements, sensitivity, specificity and error among available automated measurements. Do not create a post-hoc self-confidence defer threshold.
 ### Model/API failure accounting
 Report target model_output_failure separately.
 
