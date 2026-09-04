@@ -23,6 +23,10 @@ DEFAULT_FILES = [
     "protocol/STATISTICAL_ANALYSIS_PLAN.md",
     "protocol/SOURCE_STRATEGY.md",
     "protocol/SAMPLE_SIZE_JUSTIFICATION.md",
+    "protocol/FRAMEWORK_VALIDATION_SCOPE.md",
+    "REPRODUCIBILITY.md",
+    "data/environment_lock.txt",
+    "data/environment_metadata.json",
     "review/REVIEW_INSTRUCTIONS.md",
     "analysis/analyze_judge_validation.py",
     "analysis/full_sap_analysis.py",
@@ -49,6 +53,8 @@ def main() -> None:
     p.add_argument("--casepack-manifest", type=Path, default=Path("data/primary_casepack_manifest.csv"))
     p.add_argument("--hbp-candidates", type=Path, default=Path("data/healthbench_professional_candidate_queue.csv"))
     p.add_argument("--real-pocqi-candidates", type=Path, default=Path("data/real_pocqi_candidate_queue.csv"))
+    p.add_argument("--response-validation-manifest", type=Path,
+                   default=Path("data/response_validation_case_selection.csv"))
     p.add_argument("--out", type=Path, default=Path("data/study_lock.json"))
     args = p.parse_args()
 
@@ -83,7 +89,17 @@ def main() -> None:
         if not path.exists():
             raise RuntimeError(f"required lock file missing: {path}")
         files[str(path)] = sha_file(path)
-    for path in (args.casepack_manifest, args.hbp_candidates, args.real_pocqi_candidates):
+    response_rows = csv_rows(args.response_validation_manifest)
+    if len(response_rows) != 60 or len({r["case_id"] for r in response_rows}) != 60:
+        raise RuntimeError("response-validation manifest must contain exactly 60 unique cases")
+    family_counts = {}
+    for r in response_rows:
+        family_counts[r["primary_family"]] = family_counts.get(r["primary_family"], 0) + 1
+    if family_counts != {"missing_information": 30, "conflicting_evidence": 30}:
+        raise RuntimeError(f"response-validation family mix must be 30/30, got {family_counts}")
+
+    for path in (args.casepack_manifest, args.hbp_candidates, args.real_pocqi_candidates,
+                 args.response_validation_manifest):
         if not path.exists():
             raise RuntimeError(f"required data manifest missing: {path}")
         files[str(path)] = sha_file(path)
@@ -101,6 +117,8 @@ def main() -> None:
         "authoring_frozen": True,
         "model_panel_frozen": True,
         "primary_case_count": 150,
+        "response_validation_case_count": 60,
+        "response_validation_family_counts": family_counts,
         "primary_strata": {f"{k[0]}/{k[1]}": v for k, v in sorted(strata.items())},
         "files_sha256": files,
     }
