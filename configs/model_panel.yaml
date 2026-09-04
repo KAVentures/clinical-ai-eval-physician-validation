@@ -1,9 +1,13 @@
-# Proposed September 2026 panel. Exact IDs were checked against current vendor
-# documentation on 2026-09-04. Dry-run every credential/endpoint before freezing.
+# September 2026 execution configuration.
+# Exact model IDs must be dry-run against live provider APIs immediately before lock.
+#
+# The study validates Clinical-AI-Eval's scoped clinician-facing measurement layer.
+# Target models are test subjects. Physicians are the clinical reference.
+# Grok 4.6 is the ONE prespecified automated judge implementation.
 #
 # There are TWO locks:
-# - authoring_frozen: lock perturbation author + prompt before the full draft reservoir;
-# - frozen: lock targets + judges before any primary target-model call.
+# - authoring_frozen: freeze perturbation author + prompt before full drafting;
+# - frozen: freeze targets + automated judge before any primary target-model call.
 
 authoring_frozen: false
 frozen: false
@@ -38,43 +42,29 @@ target_models:
     tools: disabled
 
 primary_judges:
-  - judge_id: anthropic_opus5_blinded
-    provider: anthropic
-    model: claude-opus-5
-    mode: blinded
-    reasoning_effort: high
-  - judge_id: google_gemini31pro_blinded
-    provider: google
-    model: gemini-3.1-pro-preview
-    mode: blinded
-    reasoning_effort: high
   - judge_id: xai_grok46_blinded
     provider: xai
     model: grok-4.6
     mode: blinded
     reasoning_effort: high
 
-secondary_judges:
-  - judge_id: openai_gpt56_sol_blinded_sensitivity
-    provider: openai
-    model: gpt-5.6-sol
-    mode: blinded
-    reasoning_effort: high
-  - judge_id: anthropic_opus5_cued
-    provider: anthropic
-    model: claude-opus-5
-    mode: rubric_aware
-    reasoning_effort: high
-  - judge_id: google_gemini31pro_cued
-    provider: google
-    model: gemini-3.1-pro-preview
-    mode: rubric_aware
-    reasoning_effort: high
-  - judge_id: xai_grok46_cued
-    provider: xai
-    model: grok-4.6
-    mode: rubric_aware
-    reasoning_effort: high
+# No proprietary judge panel is part of the confirmatory study.
+# An open-weight clinical judge may be added only as a prespecified secondary
+# sensitivity analysis if it is public, version-pinnable and reproducible before
+# study lock. If not, the study proceeds with no replacement.
+secondary_judges: []
+
+automated_judge_selection:
+  rationale: >-
+    The predecessor Grok 4.3 showed the strongest point-estimate clinician alignment
+    and least permissive calibration among four judges in prior physician-anchored
+    work by the investigator, while no model was shown to be universally unbiased.
+    Grok 4.6 is therefore selected prospectively as one representative current
+    automated evaluator and is revalidated against new blinded physician labels
+    rather than assumed to inherit Grok 4.3 calibration.
+  same_provider_audit_required: true
+  primary_scoring_scope: physician_calibration_only
+  expected_primary_cells: 480
 
 inference_policy:
   temperature: null
