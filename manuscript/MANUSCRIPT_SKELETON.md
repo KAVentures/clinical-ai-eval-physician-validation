@@ -8,7 +8,7 @@
 Clinical AI evaluations increasingly use LLMs as automated judges, but evaluator choice can materially affect measured performance. Static, fully specified cases may also under-test a clinically important failure mode: over-committing when decision-relevant evidence is absent or internally contradictory.
 
 ### Objective
-To validate Clinical-AI-Eval as a reproducible clinical-AI assurance framework by testing the clinical validity of its perturbations, the criterion validity and robustness of its automated judge layer against blinded physicians, the usefulness of its defer-to-human logic, and external reproducibility; target-model robustness is a secondary application of the validated framework.
+To validate a prespecified clinician-facing slice of Clinical-AI-Eval by testing the construct validity of its preconstructed missing-information/conflicting-evidence manifestation path, the criterion validity and robustness of its automated judge layer against blinded physicians, its human-review mechanics, and external-dataset reproducibility; target-model robustness is a secondary application.
 
 ### Methods
 Prospective framework-validation study using a 150-source physician-validated HealthBench Professional-derived construct cohort and a deterministic 60-source response-validation subset. Four provider-diverse target models answer original and perturbed presentations only for the 60-source subset, yielding 480 response cells. Every response cell receives two independent cross-fitted physician ratings and one blinded Grok 4.6 automated-evaluator score. Grok 4.6 is prospectively validated against physicians rather than treated as ground truth. External replication uses 50 construct-valid Real-POCQi sources with physician-anchored target evaluation.
@@ -27,7 +27,7 @@ Prospective framework-validation study using a 150-source physician-validated He
 4. Controlled perturbations can isolate these robustness failures, but the evaluator itself must be calibrated against physicians.
 5. Clinical-AI-Eval is a reusable framework, but its usefulness cannot be inferred from engineering completeness alone.
 6. This study therefore validates five framework properties:
-   - construct validity of the perturbation layer;
+   - construct validity of the preconstructed qualification-study manifestation path;
    - criterion validity of automated judging against physicians;
    - reliability across evaluator/provider conditions;
    - actionability of disagreement-based defer-to-human logic;
@@ -39,7 +39,7 @@ Prospective framework-validation study using a 150-source physician-validated He
 ### Study design
 Describe the prospective validation of the pinned Clinical-AI-Eval framework and explicitly map each component to a validation question:
 
-- perturbation layer -> construct validity;
+- preconstructed family-manifest path -> construct validity;
 - automated judge layer -> criterion validity versus physicians;
 - same-provider Grok-target versus other-provider scoring -> evaluator robustness;
 - unanimity/disagreement routing -> actionability and safe defer-to-human coverage;
@@ -362,11 +362,11 @@ Use the narrowest wording supported by the data.
 
 A successful study may support:
 
-> Within the audited task and case-mix scope, Clinical-AI-Eval generated clinically valid stress tests and its automated evaluation layer achieved measured [operating characteristics] relative to the cross-fitted physician reference, with [coverage/error] under the prespecified defer-to-human rule and [external replication finding] on Real-POCQi.
+> Within the audited task and case-mix scope, Clinical-AI-Eval's preconstructed missing-information/conflicting-evidence pathway carried physician-validated stress-test manifestations through the framework's manifest and validity contracts, and its automated evaluation layer achieved measured [operating characteristics] relative to the cross-fitted physician reference, with [coverage/error] and [external replication finding] on Real-POCQi.
 
 A mixed or negative study may instead support a bounded conclusion such as:
 
-> Clinical-AI-Eval's perturbation layer was clinically valid, but its automated judge layer was insufficiently reliable for unattended scoring; the framework should therefore retain physician adjudication for [specified conditions].
+> The tested Clinical-AI-Eval preconstructed manifestation pathway showed construct validity, but its automated judge layer was insufficiently reliable for unattended scoring; the framework should therefore retain physician adjudication for [specified conditions].
 
 It may not support:
 
@@ -386,3 +386,13 @@ Release:
 - analysis code.
 
 Do not release HealthBench Professional case text, transformations, source physician answers, or rubrics.
+
+
+### Built-in transform boundary
+
+Do not state that the study validates `remove_labs()`, `remove_imaging()`,
+`remove_exam()`, `make_minimal_hpi()`, or generic `add_conflict()`. Those
+built-in deterministic helpers were not the manifestation generators used in the
+qualification cohort. The validated code path, if supported by results, is the
+family SDK's preconstructed-variant path plus the downstream validity/scoring/
+human-reference machinery.
