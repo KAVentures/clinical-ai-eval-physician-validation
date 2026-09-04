@@ -3,7 +3,7 @@
 
 This complements analyze_judge_validation.py (primary operating characteristics)
 and produces human agreement, paired model robustness, McNemar tests, GEE models,
-Holm-adjusted target contrasts, judge-family bias, cueing, selective automation,
+Holm-adjusted target contrasts, same-provider judge audit, automated-screen coverage,
 subgroup descriptions, target output failures, and all-150 automated estimates.
 """
 from __future__ import annotations
@@ -239,7 +239,8 @@ def judge_frame(path: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def judge_bias_and_cueing(ref: pd.DataFrame, jdf: pd.DataFrame, cfg: dict, outdir: Path) -> None:
+def judge_provider_audit(ref: pd.DataFrame, jdf: pd.DataFrame, outdir: Path) -> None:
+    """Audit the only provider-bias question relevant to this study: Grok judging Grok."""
     binary = ref[ref["unsafe_overconfident_reference"].isin(BINARY)].copy()
     binary["reference"] = binary["unsafe_overconfident_reference"].astype(int)
     merged = binary.merge(jdf, on="response_id", how="inner")
@@ -248,71 +249,52 @@ def judge_bias_and_cueing(ref: pd.DataFrame, jdf: pd.DataFrame, cfg: dict, outdi
     for (jid, jprov, tprov), g in merged.groupby(["judge_id", "judge_provider", "target_provider"]):
         m = metric_counts(g["reference"].to_numpy(), g["label"].to_numpy())
         rows.append({
-            "judge_id": jid, "judge_provider": jprov, "target_provider": tprov,
-            "same_provider_family": int(jprov == tprov), **m,
+            "judge_id": jid,
+            "judge_provider": jprov,
+            "target_provider": tprov,
+            "same_provider_target_judge": int(jprov == tprov),
+            **m,
         })
-    pd.DataFrame(rows).to_csv(outdir / "judge_target_provider_matrix.csv", index=False)
+    pd.DataFrame(rows).to_csv(outdir / "judge_target_provider_audit.csv", index=False)
 
-    all_judges = list(cfg.get("primary_judges") or []) + list(cfg.get("secondary_judges") or [])
-    blinded = {(j["provider"], j["model"]): j["judge_id"] for j in all_judges if j.get("mode") == "blinded"}
-    cue_rows = []
-    for j in all_judges:
-        if j.get("mode") != "rubric_aware":
-            continue
-        key = (j["provider"], j["model"])
-        if key not in blinded:
-            continue
-        bid, cid = blinded[key], j["judge_id"]
-        b = jdf[jdf["judge_id"] == bid][["response_id", "label"]].rename(columns={"label": "blinded"})
-        c = jdf[jdf["judge_id"] == cid][["response_id", "label"]].rename(columns={"label": "cued"})
-        g = binary.merge(b, on="response_id").merge(c, on="response_id")
-        if g.empty:
-            continue
-        mb = metric_counts(g["reference"].to_numpy(), g["blinded"].to_numpy())
-        mc = metric_counts(g["reference"].to_numpy(), g["cued"].to_numpy())
-        cue_rows.append({
-            "provider": j["provider"], "model": j["model"],
-            "blinded_judge_id": bid, "cued_judge_id": cid, "n": len(g),
-            "positive_rate_blinded": float(g["blinded"].mean()),
-            "positive_rate_cued": float(g["cued"].mean()),
-            "cueing_gap": float(g["cued"].mean() - g["blinded"].mean()),
-            "sensitivity_blinded": mb["sensitivity"], "sensitivity_cued": mc["sensitivity"],
-            "specificity_blinded": mb["specificity"], "specificity_cued": mc["specificity"],
-        })
-    pd.DataFrame(cue_rows).to_csv(outdir / "judge_cueing_analysis.csv", index=False)
+    if not merged.empty:
+        summary = []
+        for same, g in merged.groupby(merged["judge_provider"] == merged["target_provider"]):
+            m = metric_counts(g["reference"].to_numpy(), g["label"].to_numpy())
+            summary.append({
+                "same_provider_target_judge": int(bool(same)),
+                **m,
+            })
+        pd.DataFrame(summary).to_csv(outdir / "same_provider_judge_summary.csv", index=False)
 
 
-def selective_automation(ref: pd.DataFrame, jdf: pd.DataFrame, cfg: dict, outdir: Path) -> None:
+def automated_screen_operating_point(ref: pd.DataFrame, jdf: pd.DataFrame, outdir: Path) -> None:
+    """Describe usable automated coverage without inventing confidence-based defer rules."""
     binary = ref[ref["unsafe_overconfident_reference"].isin(BINARY)].copy()
     binary["reference"] = binary["unsafe_overconfident_reference"].astype(int)
-    primary = [j["judge_id"] for j in cfg.get("primary_judges", [])]
-    p = jdf[jdf["judge_id"].isin(primary)].pivot(index="response_id", columns="judge_id", values="label")
-    g = binary.merge(p, on="response_id", how="inner").dropna(subset=primary)
-    if g.empty:
-        pd.DataFrame().to_csv(outdir / "selective_automation.csv", index=False)
-        return
-    votes = g[primary].astype(int)
-    unanimous = (votes.nunique(axis=1) == 1)
-    majority = (votes.sum(axis=1) >= 2).astype(int)
-    unanimous_pred = (votes.sum(axis=1) == len(primary)).astype(int)
+    g = binary.merge(jdf[["response_id", "label"]], on="response_id", how="left")
+    available = g["label"].notna()
+    if available.any():
+        m = metric_counts(
+            g.loc[available, "reference"].to_numpy(),
+            g.loc[available, "label"].astype(int).to_numpy(),
+        )
+        error = float((g.loc[available, "reference"].astype(int) != g.loc[available, "label"].astype(int)).mean())
+    else:
+        m = metric_counts(np.array([], dtype=int), np.array([], dtype=int))
+        error = np.nan
     rows = [{
-        "rule": "unanimity_defer",
-        "n_reference": len(g),
-        "auto_covered": int(unanimous.sum()),
-        "coverage": float(unanimous.mean()),
-        "deferred": int((~unanimous).sum()),
-        "error_among_auto": float((unanimous_pred[unanimous] != g.loc[unanimous, "reference"]).mean())
-        if unanimous.any() else np.nan,
-    }, {
-        "rule": "majority_no_defer",
-        "n_reference": len(g),
-        "auto_covered": len(g),
-        "coverage": 1.0,
-        "deferred": 0,
-        "error_among_auto": float((majority != g["reference"]).mean()),
+        "rule": "single_prespecified_judge_no_confidence_defer",
+        "n_binary_physician_reference": len(g),
+        "automated_measurements_available": int(available.sum()),
+        "coverage": float(available.mean()) if len(g) else np.nan,
+        "missing_or_failed_judge_measurements": int((~available).sum()),
+        "error_among_available": error,
+        "sensitivity": m["sensitivity"],
+        "specificity": m["specificity"],
+        "note": "No post-hoc judge-confidence threshold is used; failure boundaries are reported from physician comparison.",
     }]
-    pd.DataFrame(rows).to_csv(outdir / "selective_automation.csv", index=False)
-
+    pd.DataFrame(rows).to_csv(outdir / "automated_screen_operating_point.csv", index=False)
 
 def subgroup_summary(ref: pd.DataFrame, outdir: Path) -> None:
     z = ref[ref["unsafe_overconfident_reference"].isin(BINARY)].copy()
@@ -338,28 +320,27 @@ def target_failures_and_automated(responses_path: Path, jdf: pd.DataFrame, cfg: 
     fail["rate"] = fail["n"] / fail["target_total"]
     fail.to_csv(outdir / "target_output_status.csv", index=False)
 
-    primary = [j["judge_id"] for j in cfg.get("primary_judges", [])]
-    p = jdf[jdf["judge_id"].isin(primary)].pivot(index="response_id", columns="judge_id", values="label")
-    g = responses.merge(p, on="response_id", how="inner").dropna(subset=primary)
+    # Automated model estimates are deliberately limited to the physician-calibration
+    # cohort because the judge is not run on the remaining 720 unanchored cells.
+    g = responses.merge(jdf[["response_id", "label"]], on="response_id", how="inner")
     if g.empty:
-        pd.DataFrame().to_csv(outdir / "automated_full_cohort_model_estimates.csv", index=False)
+        pd.DataFrame().to_csv(outdir / "automated_calibration_cohort_target_estimates.csv", index=False)
         return
-    g["panel_majority"] = (g[primary].astype(int).sum(axis=1) >= 2).astype(int)
     pivot = g.pivot_table(
-        index=["case_id", "target_id"], columns="presentation", values="panel_majority", aggfunc="first"
+        index=["case_id", "target_id"], columns="presentation", values="label", aggfunc="first"
     ).reset_index().dropna(subset=["original", "perturbed"])
     pivot["delta"] = pivot["perturbed"] - pivot["original"]
     rows = []
     for target, q in pivot.groupby("target_id"):
         rows.append({
-            "target_id": target, "n_paired_cases": len(q),
-            "automated_panel_majority_original_rate": float(q["original"].mean()),
-            "automated_panel_majority_perturbed_rate": float(q["perturbed"].mean()),
+            "target_id": target,
+            "n_paired_cases": len(q),
+            "automated_judge_original_rate": float(q["original"].mean()),
+            "automated_judge_perturbed_rate": float(q["perturbed"].mean()),
             "automated_paired_risk_difference": float(q["delta"].mean()),
-            "label": "AUTOMATED_ESTIMATE_NOT_PHYSICIAN_REFERENCE",
+            "label": "AUTOMATED_ESTIMATE_ON_PHYSICIAN_CALIBRATION_COHORT_NOT_HUMAN_TRUTH",
         })
-    pd.DataFrame(rows).to_csv(outdir / "automated_full_cohort_model_estimates.csv", index=False)
-
+    pd.DataFrame(rows).to_csv(outdir / "automated_calibration_cohort_target_estimates.csv", index=False)
 
 def reference_missingness(ref: pd.DataFrame, outdir: Path) -> None:
     rows = [{
@@ -393,8 +374,8 @@ def main() -> None:
     target_robustness(ref, args.out_dir, args.bootstrap, args.seed)
     target_pairwise(ref, args.out_dir, args.bootstrap, args.seed + 50000)
     gee_models(ref, args.out_dir)
-    judge_bias_and_cueing(ref, jdf, cfg, args.out_dir)
-    selective_automation(ref, jdf, cfg, args.out_dir)
+    judge_provider_audit(ref, jdf, args.out_dir)
+    automated_screen_operating_point(ref, jdf, args.out_dir)
     subgroup_summary(ref, args.out_dir)
     target_failures_and_automated(args.target_responses, jdf, cfg, args.out_dir)
 
