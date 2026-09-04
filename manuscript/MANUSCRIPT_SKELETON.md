@@ -1,4 +1,4 @@
-# Human-Anchored Validation of Automated Evaluation for Clinical AI Under Missing and Conflicting Evidence
+# Physician-Anchored Validation of Clinical-AI-Eval: A Framework for Stress-Testing Clinical AI Under Missing and Conflicting Evidence
 
 **Status:** preregistration-era manuscript skeleton; no study results inserted.
 
@@ -8,7 +8,7 @@
 Clinical AI evaluations increasingly use LLMs as automated judges, but evaluator choice can materially affect measured performance. Static, fully specified cases may also under-test a clinically important failure mode: over-committing when decision-relevant evidence is absent or internally contradictory.
 
 ### Objective
-To measure the operating characteristics of blinded automated clinical-AI judges against a cross-fitted blinded physician reference and to characterize model behavior under controlled information degradation.
+To validate Clinical-AI-Eval as a reproducible clinical-AI assurance framework by testing the clinical validity of its perturbations, the criterion validity and robustness of its automated judge layer against blinded physicians, the usefulness of its defer-to-human logic, and external reproducibility; target-model robustness is a secondary application of the validated framework.
 
 ### Methods
 Prospective paired perturbation study using 150 physician-validated HealthBench Professional-derived care-consult source cases. Each source has one locked primary perturbation: missing information or conflicting evidence. Four provider-diverse target models answer original and perturbed presentations. Three provider-diverse automated judges form the blinded primary judge panel. A shared 60-source physician calibration cohort spans all four targets and both presentations, yielding 480 unique response cells. For each source, one of three physicians performs construct validation and the other two—who have not seen that source's original/perturbed pair—independently rate its AI responses. Discordant or indeterminate primary labels are resolved only after both independent ratings are locked. External replication uses 50 construct-valid Real-POCQi sources.
@@ -25,20 +25,26 @@ Prospective paired perturbation study using 150 physician-validated HealthBench 
 2. Automated judges are measurement instruments and can exhibit error, disagreement, provider effects, and cue sensitivity.
 3. Static fully specified cases under-test responses to missing or contradictory decision-relevant evidence.
 4. Controlled perturbations can isolate these robustness failures, but the evaluator itself must be calibrated against physicians.
-5. This study therefore separates three questions:
-   - does the perturbation construct remain clinically valid?
-   - does the automated judge measure the specified failure accurately enough for its intended use?
-   - how do target models behave under that perturbation?
+5. Clinical-AI-Eval is a reusable framework, but its usefulness cannot be inferred from engineering completeness alone.
+6. This study therefore validates five framework properties:
+   - construct validity of the perturbation layer;
+   - criterion validity of automated judging against physicians;
+   - reliability across evaluator/provider conditions;
+   - actionability of disagreement-based defer-to-human logic;
+   - external robustness on an independent clinical source cohort.
+7. Target-model behavior is a secondary application used to exercise the framework, not the primary scientific object.
 
 ## Methods
 
 ### Study design
-Describe the prospective paired perturbation study and explicitly distinguish:
+Describe the prospective validation of the pinned Clinical-AI-Eval framework and explicitly map each component to a validation question:
 
-- primary measurement validation of the automated judge;
-- secondary target-model robustness comparisons;
-- post-response construct-reliability audit;
-- external Real-POCQi replication.
+- perturbation layer -> construct validity;
+- automated judge layer -> criterion validity versus physicians;
+- multi-provider/cued conditions -> evaluator reliability and bias sensitivity;
+- unanimity/disagreement routing -> actionability and safe defer-to-human coverage;
+- Real-POCQi -> external robustness;
+- target-model comparisons -> secondary application of the validated measurement system.
 
 ### Source datasets
 
@@ -136,6 +142,8 @@ Describe:
 - explicit judge API/format failure handling.
 
 Judge failures are missing measurements and never become negative labels.
+
+If an eligible open-weight clinical judge is publicly released and version-pinnable before study lock, include it only as a prespecified secondary sensitivity analysis. It does not replace physicians or enter the primary three-judge panel. If no eligible public release exists at lock, omit this analysis rather than selecting a post-hoc substitute.
 
 ### Physician response-reference cohort
 Describe the shared 60-source sample:
@@ -325,13 +333,16 @@ Report the 50-source Real-POCQi cohort separately using the same endpoint defini
 [RESULT-DEPENDENT]
 
 ### Interpretation
-Keep distinct:
+Interpret the results first as validation of Clinical-AI-Eval:
 
-1. construct validity/reliability;
-2. judge measurement validity;
-3. target-model robustness.
+1. **construct validity** — are the framework's stressors clinically real?
+2. **criterion validity** — can the automated layer reproduce physician judgments within a measured error profile?
+3. **reliability** — are conclusions stable enough across judge/provider conditions?
+4. **actionability** — does defer-to-human routing reduce automated error at useful coverage?
+5. **external robustness** — do these findings reproduce on Real-POCQi?
+6. **secondary target-model findings** — what the framework reveals about GPT/Claude/Gemini/Grok.
 
-Evidence for one does not substitute for another.
+Evidence for one framework component does not substitute for another.
 
 ### Comparison with prior work
 Discuss HealthBench/HealthBench Professional, Real-POCQi, clinical LLM-as-judge studies, evaluator-bias literature, and missing/conflicting evidence robustness.
@@ -361,7 +372,11 @@ Use the narrowest wording supported by the data.
 
 A successful study may support:
 
-> Within the audited task and case-mix scope, [judge/panel] achieved measured [operating characteristics] for detecting the prespecified unsafe-overconfidence endpoint relative to the cross-fitted physician reference.
+> Within the audited task and case-mix scope, Clinical-AI-Eval generated clinically valid stress tests and its automated evaluation layer achieved measured [operating characteristics] relative to the cross-fitted physician reference, with [coverage/error] under the prespecified defer-to-human rule and [external replication finding] on Real-POCQi.
+
+A mixed or negative study may instead support a bounded conclusion such as:
+
+> Clinical-AI-Eval's perturbation layer was clinically valid, but its automated judge layer was insufficiently reliable for unattended scoring; the framework should therefore retain physician adjudication for [specified conditions].
 
 It may not support:
 
