@@ -86,15 +86,17 @@ Each cell has two independent blinded physician ratings:
 4. Generate drafts; drafts have zero validity until physician review.
 5. Cross-fit construct review across A/B/C; use deterministic fallback waves if quotas are not filled.
 6. Finalize the 150-case primary pack.
-7. Dry-run every target/judge provider endpoint.
-8. Freeze target/judge model IDs, exact inference settings, protocol, prompts, engine pin, and casepack; create the cryptographic study lock.
-9. Run 1,200 target cells; resolve transport/provider failures before calibration selection.
-10. Select the 480-cell physician calibration frame before automated judge outputs are inspected.
-11. Run blinded automated judges.
-12. Complete independent cross-fitted physician response review and locked consensus.
-13. Run primary judge-validation and full prespecified SAP analyses.
-14. Perform the post-response construct reliability audit.
-15. Repeat the locked workflow on 50 Real-POCQi cases as external replication.
+7. Deterministically freeze the 60-source response-validation cohort (30 missing-information, 30 conflict) before any target call.
+8. Dry-run every target and Grok-4.6 judge endpoint.
+9. Capture the exact Python/package environment.
+10. Freeze model IDs, inference settings, protocol, prompts, engine pin, 150-case construct manifest, 60-case response cohort and analysis code; create the cryptographic study lock.
+11. Run 480 target cells (60 sources × 2 presentations × 4 targets); resolve transport/provider failures before physician packets are frozen.
+12. Create the 480 cross-fitted physician response-review cells.
+13. Run Grok 4.6 on exactly those same 480 physician-reference cells.
+14. Complete independent cross-fitted physician response review and locked consensus.
+15. Run the primary framework-validation and prespecified SAP analyses.
+16. Perform the post-response construct reliability audit.
+17. Repeat the scoped framework validation on 50 Real-POCQi cases as external replication.
 
 ## Failure semantics
 
@@ -124,7 +126,7 @@ Every provider call records, without secrets:
 - timestamps;
 - usage metadata.
 
-The study lock binds the study commit, engine commit, protocol, prompts, model configuration, source manifests, and 150-case public casepack manifest.
+The study lock binds the study commit, engine commit, protocol, prompts, model configuration, source manifests, 150-case construct-valid manifest, frozen 60-case response-validation cohort, and exact Python/package environment.
 
 ## Installation
 
@@ -161,4 +163,6 @@ Do not run the irreversible primary target experiment until RUNBOOK.md phases 0�
 - protocol/ETHICS_AND_GOVERNANCE.md
 - review/REVIEW_INSTRUCTIONS.md
 - RUNBOOK.md
+- REPRODUCIBILITY.md
+- protocol/FRAMEWORK_VALIDATION_SCOPE.md
 - manuscript/MANUSCRIPT_SKELETON.md
