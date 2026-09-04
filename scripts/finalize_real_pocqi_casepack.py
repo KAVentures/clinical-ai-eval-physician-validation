@@ -84,7 +84,12 @@ def main() -> None:
     for pid, row in reviews.items():
         if row_valid(row):
             d = drafts[pid]
-            valid_by_source[str(d["source_id"])][str(d["family"])] = d
+            sid, family = str(d["source_id"]), str(d["family"])
+            if family in valid_by_source[sid]:
+                raise RuntimeError(
+                    f"multiple valid perturbation versions for {sid}/{family}; freeze one version explicitly"
+                )
+            valid_by_source[sid][family] = d
 
     candidates = sorted(read_csv(args.candidate_queue), key=lambda r: int(r["candidate_priority"]))
     selected = [r for r in candidates if str(r["source_id"]) in valid_by_source][:N_CASES]
