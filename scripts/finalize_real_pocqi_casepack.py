@@ -133,7 +133,7 @@ def main() -> None:
         "case_id", "source_dataset", "source_id", "specialty", "source_revision",
         "source_file_sha256", "primary_family", "primary_perturbation_id",
         "source_variant_id", "framework_test_id", "framework_variant_source",
-        "framework_structural_valid", "construct_reviewer",
+        "framework_structural_valid", "framework_human_confirmed", "construct_reviewer",
         "original_case_sha256", "perturbed_case_sha256", "casepack_status",
     ]
     pub = []
@@ -143,7 +143,9 @@ def main() -> None:
             d = valid_by_source[sid][family]
             case_id = "rpv1-" + stable_hash("rp-case", sid)[:12]
             rid = construct_reviewer(sid)
-            framework_row, framework_validity = import_reviewed_variant(d, rid)
+            framework_row, framework_validity, framework_human_validity = import_reviewed_variant(
+                d, reviews[str(d["perturbation_id"])]
+            )
             rec = {
                 "case_id": case_id,
                 "source_dataset": r["source_dataset"],
@@ -155,6 +157,7 @@ def main() -> None:
                 "source_variant_id": d["perturbation_id"],
                 "framework_manifest": framework_row,
                 "framework_structural_validity": framework_validity,
+                "framework_human_validity": framework_human_validity,
                 "original_case": d["original_case"],
                 "perturbed_case": d["modified_case"],
                 "changed_evidence": d.get("changed_evidence", ""),
@@ -174,6 +177,10 @@ def main() -> None:
                 "framework_test_id": framework_row["test_id"],
                 "framework_variant_source": framework_row["variant_source"],
                 "framework_structural_valid": str(bool(framework_validity["valid"])).lower(),
+                "framework_human_confirmed": str(
+                    bool(framework_human_validity["valid"])
+                    and not bool(framework_human_validity["requires_human_validity_confirmation"])
+                ).lower(),
                 "construct_reviewer": rid,
                 "original_case_sha256": sha(d["original_case"]),
                 "perturbed_case_sha256": sha(d["modified_case"]),
