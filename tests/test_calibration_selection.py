@@ -84,3 +84,42 @@ def test_calibration_refuses_transport_failures(tmp_path):
         "--vault", str(tmp_path / "v"), "--public-manifest", str(tmp_path / "p.csv"),
     ], cwd=ROOT)
     assert proc.returncode != 0
+
+
+def test_response_validation_cases_are_selected_before_targets(tmp_path):
+    cases = []
+    for i in range(150):
+        family = "missing_information" if i < 75 else "conflicting_evidence"
+        cases.append({
+            "case_id": f"c{i:03d}",
+            "source_id": f"s{i:03d}",
+            "source_dataset": "x",
+            "source_metadata": {"type": "good_faith", "difficulty": "typical", "specialty": "medicine"},
+            "construct_reviewer": ["A", "B", "C"][i % 3],
+            "primary_family": family,
+            "primary_perturbation_id": f"p{i}",
+            "original_case": "o",
+            "perturbed_case": "p",
+        })
+    cp = tmp_path / "primary150.jsonl"
+    cp.write_text("\n".join(json.dumps(x) for x in cases) + "\n", encoding="utf-8")
+    public = tmp_path / "selection.csv"
+    vault = tmp_path / "vault"
+
+    subprocess.run([
+        sys.executable, "scripts/select_response_validation_cases.py",
+        "--casepack", str(cp),
+        "--vault", str(vault),
+        "--public-manifest", str(public),
+    ], cwd=ROOT, check=True)
+
+    rows = list(csv.DictReader(public.open(newline="", encoding="utf-8")))
+    assert len(rows) == 60
+    assert len({r["case_id"] for r in rows}) == 60
+    assert sum(r["primary_family"] == "missing_information" for r in rows) == 30
+    assert sum(r["primary_family"] == "conflicting_evidence" for r in rows) == 30
+    private = [
+        json.loads(x)
+        for x in (vault / "casepack/response_validation_60.private.jsonl").read_text().splitlines()
+    ]
+    assert {x["case_id"] for x in private} == {r["case_id"] for r in rows}
