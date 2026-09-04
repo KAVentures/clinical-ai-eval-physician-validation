@@ -38,8 +38,10 @@ def check_config(cfg: dict) -> None:
     judges = cfg.get("primary_judges") or []
     if len(targets) != 4 or len({x["provider"] for x in targets}) != 4:
         raise RuntimeError("need four targets from four distinct providers")
-    if len(judges) != 3 or len({x["provider"] for x in judges}) != 3:
-        raise RuntimeError("need three primary judges from three distinct providers")
+    if len(judges) != 1:
+        raise RuntimeError("confirmatory study requires exactly one primary automated judge")
+    if judges[0].get("provider") != "xai" or judges[0].get("model") != "grok-4.6":
+        raise RuntimeError("primary automated judge must be xAI Grok 4.6")
     if any(x.get("mode") != "blinded" for x in judges):
         raise RuntimeError("all primary judges must be blinded")
     if cfg.get("inference_policy", {}).get("tools") != "disabled":
@@ -119,8 +121,10 @@ def main() -> None:
     if len(refs) != 480:
         raise RuntimeError(f"physician reference must contain 480 cells, got {len(refs)}")
     js = read_jsonl(judge_scores)
-    if not js:
-        raise RuntimeError("judge score file is empty or missing")
+    if len(js) != 480:
+        raise RuntimeError(f"primary judge score file must contain exactly 480 calibration evaluations, got {len(js)}")
+    if len({str(r.get("response_id")) for r in js}) != 480:
+        raise RuntimeError("primary judge score file contains duplicate/missing response IDs")
     print("PASS analysis preflight")
 
 
