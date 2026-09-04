@@ -26,11 +26,7 @@ def read_csv(path: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def require_keys(cfg: dict, key_path: Path | None, include_author: bool = False) -> None:
-    providers = {x["provider"] for x in cfg.get("target_models", [])}
-    providers |= {x["provider"] for x in cfg.get("primary_judges", [])}
-    if include_author:
-        providers.add(cfg["authoring_model"]["provider"])
+def require_keys(providers: set[str], key_path: Path | None) -> None:
     keys = load_keys(key_path)
     missing = [KEY_NAMES[p] for p in sorted(providers) if not keys.get(KEY_NAMES[p])]
     if missing:
@@ -65,7 +61,7 @@ def main() -> None:
     check_config(cfg)
 
     if args.phase == "authoring":
-        require_keys(cfg, args.keys, include_author=True)
+        require_keys({cfg["authoring_model"]["provider"]}, args.keys)
         if cfg.get("authoring_frozen") is not True:
             raise RuntimeError("authoring_frozen is false; only technical limited dry-runs are allowed")
         print("PASS authoring preflight")
@@ -73,7 +69,10 @@ def main() -> None:
 
     if cfg.get("frozen") is not True:
         raise RuntimeError("model panel is not frozen")
-    require_keys(cfg, args.keys)
+    if args.phase == "targets":
+        require_keys({x["provider"] for x in cfg.get("target_models", [])}, args.keys)
+    else:
+        require_keys({x["provider"] for x in cfg.get("primary_judges", [])}, args.keys)
 
     case_rows = read_csv(args.casepack_manifest)
     if len(case_rows) != 150:
