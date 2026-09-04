@@ -203,7 +203,7 @@ def main() -> None:
             if by_pid[source_variant_id]["construct_reviewer"] != rid:
                 raise AssertionError("construct reviewer mapping drift")
             framework_row, framework_validity, framework_human_validity = import_reviewed_variant(
-                d, by_pid[source_variant_id]
+                d, reviews[source_variant_id]
             )
             pid = str(framework_row["perturbation_id"])
             case_id = "hbpv1-" + stable_hash("case-id", sid)[:12]
@@ -225,7 +225,7 @@ def main() -> None:
                 "perturbed_case": d["modified_case"],
                 "changed_evidence": d.get("changed_evidence", ""),
                 "draft_safe_response_strategy": d.get("safe_response_strategy", ""),
-                "construct_validation": by_pid[source_variant_id],
+                "construct_validation": reviews[source_variant_id],
             }
             pf.write(json.dumps(private_record, ensure_ascii=False) + "\n")
             public_rows.append({
