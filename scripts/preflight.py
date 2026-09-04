@@ -83,6 +83,17 @@ def main() -> None:
         raise RuntimeError(f"primary casepack manifest must contain 150 rows, got {len(case_rows)}")
     if len({r["case_id"] for r in case_rows}) != 150:
         raise RuntimeError("primary casepack contains duplicate case IDs")
+    if any(
+        r.get("framework_variant_source") != "preconstructed"
+        or r.get("framework_structural_valid") != "true"
+        or not r.get("source_variant_id")
+        or r.get("primary_perturbation_id") == r.get("source_variant_id")
+        for r in case_rows
+    ):
+        raise RuntimeError(
+            "primary casepack does not consistently use the pinned Clinical-AI-Eval "
+            "preconstructed variant path"
+        )
 
     response_selection = read_csv(args.response_validation_manifest)
     if len(response_selection) != 60 or len({r["case_id"] for r in response_selection}) != 60:
