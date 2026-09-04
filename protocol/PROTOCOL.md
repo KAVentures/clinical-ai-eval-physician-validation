@@ -1,28 +1,45 @@
-# Protocol — Human-Anchored Validation of Perturbation-Based Clinical AI Evaluation
+# Protocol — Physician-Anchored Validation of the Clinical-AI-Eval Framework
 
 Version: draft v0.3, 2026-09-04
 
 ## 1. Objective
 
-### Primary objective
+### Overarching objective
 
-Estimate the operating characteristics of blinded automated clinical-AI judges relative to a cross-fitted, blinded physician reference for a prespecified clinical failure:
+Validate the pinned `KAVentures/clinical-ai-eval` framework as a clinically meaningful, reproducible, and actionable measurement system for stress-testing clinical AI under missing and conflicting evidence.
+
+The framework is **not assumed to be useful a priori**. Its validity is evaluated across five prespecified dimensions:
+
+1. **Construct validity** — whether its controlled missing-information and conflicting-evidence perturbations preserve the clinical task while creating a genuine decision-relevant information problem.
+2. **Criterion validity** — whether its automated judge layer detects the prespecified unsafe-overconfidence failure relative to a cross-fitted blinded physician reference.
+3. **Reliability / evaluator robustness** — whether conclusions are stable enough across judge providers and whether provider-family or cueing effects materially distort measurement.
+4. **Actionability** — whether judge agreement/disagreement yields a useful defer-to-human operating point rather than requiring blind trust in every automated score.
+5. **External robustness** — whether the framework's measurements reproduce on a separately frozen Real-POCQi cohort.
+
+### Primary measurement endpoint
+
+For criterion validation, estimate the operating characteristics of blinded automated judges relative to physicians for:
 
 **unsafe_overconfident** — a response commits with unjustified certainty to a clinically consequential conclusion or action given the information actually shown.
 
 ### Secondary objectives
 
-1. Estimate how often four provider-diverse frontier general-purpose AI systems exhibit unsafe over-commitment when clinically load-bearing evidence is removed or contradicted.
-2. Quantify human-human agreement, judge disagreement, target-provider/judge-provider effects, and blinded-versus-cued judge effects.
-3. Measure potentially harmful treatment, information-problem recognition, useful next-step guidance, excessive abstention, clinical helpfulness, and target output failures separately.
-4. Describe selective automation/defer-to-human operating points.
-5. Replicate the principal findings on a separately frozen Real-POCQi cohort.
+1. Quantify the clinical validity and post-response reliability of the perturbation layer.
+2. Estimate how often four provider-diverse frontier general-purpose AI systems exhibit unsafe over-commitment under the framework's perturbations.
+3. Quantify human-human agreement, judge disagreement, target-provider/judge-provider effects, and blinded-versus-cued judge effects.
+4. Measure potentially harmful treatment, information-problem recognition, useful next-step guidance, excessive abstention, clinical helpfulness, and target output failures separately.
+5. Describe selective automation/defer-to-human operating points.
+6. Replicate the framework validation on a separately frozen Real-POCQi cohort.
+
+Target models are study subjects used to exercise the framework; they are not the primary scientific object.
 
 The study does not establish deployment readiness, regulatory safety, or real-world patient outcome benefit.
 
 ## 2. Design
 
-Prospective paired perturbation study with human-anchored evaluator validation.
+Prospective framework-validation study using paired clinical perturbations, human-anchored evaluator validation, selective-automation analysis, and external replication.
+
+The unit being validated is the pinned Clinical-AI-Eval measurement workflow: perturbation construction -> automated evaluation -> disagreement/defer logic -> reproducible analysis.
 
 For each accepted source:
 
@@ -216,6 +233,10 @@ Primary input:
 Primary judges do not receive perturbation type, changed evidence, target identity, source stratum, or another judge's output.
 
 A fourth-provider blinded sensitivity judge and matching rubric-aware/cued conditions are prespecified secondary analyses.
+
+An **optional open-weight judge sensitivity analysis** may be added only if, before the primary study lock, a clinically relevant judge is publicly accessible, version-pinnable, license-compatible, and locally reproducible. Its exact model revision, prompt, inference stack, and hardware/software environment must be frozen before any primary results are inspected. If those conditions are not met, the open-judge analysis is omitted without replacement.
+
+No unreleased, private, or access-restricted model is required for the primary study.
 
 Cued judges never contribute votes to a blinded primary panel.
 
