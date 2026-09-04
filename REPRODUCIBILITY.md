@@ -58,6 +58,7 @@ For exact post-publication reproduction, create the Python version recorded in t
 
 ~~~bash
 python -m pip install -r data/environment_lock.txt
+python -m pip install -e .
 ~~~
 
 ## No-network synthetic rehearsal
