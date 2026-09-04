@@ -45,6 +45,8 @@ def main() -> None:
     p.add_argument("--resume", action="store_true")
     p.add_argument("--allow-unfrozen", action="store_true", help="Dry-run only; never use for primary study results")
     p.add_argument("--limit", type=int, default=0)
+    p.add_argument("--expected-cases", type=int, default=60,
+                   help="Fail closed if the target casepack size differs (primary=60; external=50)")
     args = p.parse_args()
 
     cfg = yaml.safe_load(args.models.read_text(encoding="utf-8"))
@@ -65,6 +67,12 @@ def main() -> None:
     cases = read_jsonl(args.casepack)
     if args.limit:
         cases = cases[: args.limit]
+    elif len(cases) != args.expected_cases:
+        raise RuntimeError(
+            f"target casepack contains {len(cases)} cases; expected {args.expected_cases}. "
+            "Primary study must use the frozen 60-case response-validation pack; "
+            "external replication must pass --expected-cases 50."
+        )
     system = (Path(__file__).resolve().parents[1] / "prompts" / "target_system_prompt.txt").read_text(encoding="utf-8")
 
     private_out = args.vault / "responses" / "target_responses.private.jsonl"
