@@ -10,7 +10,7 @@ Clinical-AI-Eval is **the object being validated**. GPT/Claude/Gemini/Grok targe
 
 Validation is evaluated across five dimensions:
 
-1. **Construct validity** — do missing-information and conflicting-evidence transformations preserve patient/task/timepoint while creating a genuine clinically load-bearing information problem?
+1. **Construct validity** — does Clinical-AI-Eval's first-class preconstructed-variant path correctly admit and preserve physician-reviewed missing-information and conflicting-evidence manifestations that maintain patient/task/timepoint while creating a genuine clinically load-bearing information problem?
 2. **Criterion validity of automated scoring** — can Clinical-AI-Eval's automated scoring layer, instantiated prospectively with Grok 4.6, reproduce blinded physician judgments of unsafe overconfidence?
 3. **Evaluator robustness** — does the automated evaluator's error profile materially change when it scores same-provider Grok target responses versus other-provider responses?
 4. **Clinical usefulness of the stress test** — do blinded physicians detect paired changes in unsafe overconfidence, harmful treatment, information-problem recognition, excessive abstention and helpfulness under controlled evidence degradation?
@@ -123,7 +123,7 @@ Both families require a definable safe response strategy such as clarification, 
 
 ## 8. Perturbation drafting and immutable revision
 
-An LLM may draft candidate perturbations, but its output has zero clinical validity until physician review.
+An LLM may draft candidate perturbations, but its output has zero clinical validity until physician review. After a construct is accepted, it must be imported through the pinned Clinical-AI-Eval family's `ingest_preconstructed_variant()` path. The framework then creates the content-addressed perturbation manifest and applies its structural validity gate before the case can enter the frozen pack.
 
 The authoring model, prompt, provider interface and reasoning setting undergo only a small technical dry-run and are then frozen before the full reservoir is drafted.
 
@@ -133,7 +133,7 @@ Construct decisions:
 - reject;
 - revise.
 
-A material edit creates an immutable new perturbation version and requires fresh review.
+A material edit creates an immutable new perturbation version and requires fresh review. The final study perturbation ID is the Clinical-AI-Eval content-addressed manifest ID; the study authoring ID is retained separately as `source_variant_id`.
 
 Rejected first-choice sources may receive only deterministic previously unreviewed fallback variants before target outputs exist.
 
@@ -435,7 +435,7 @@ Before physician data collection, document:
 
 ## 28. Claim boundary
 
-A successful study may support scoped validation of the tested Clinical-AI-Eval families and measurement layers.
+A successful study may support scoped validation of the tested Clinical-AI-Eval preconstructed-manifestation family paths and measurement layers.
 
 It does not establish:
 
@@ -444,6 +444,7 @@ It does not establish:
 - patient benefit;
 - universal judge validity;
 - validity of unrelated Clinical-AI-Eval patient/RAG/procurement/certificate functionality;
+- clinical validity of the framework's generic built-in deterministic transform helpers, which are not the manifestation path exercised by this study;
 - external-organizational replication.
 
 A negative result is valid: it may show that a framework component requires physician review or remains experimental.
