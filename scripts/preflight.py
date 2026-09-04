@@ -55,6 +55,8 @@ def main() -> None:
     p.add_argument("--keys", type=Path)
     p.add_argument("--vault", type=Path)
     p.add_argument("--casepack-manifest", type=Path, default=Path("data/primary_casepack_manifest.csv"))
+    p.add_argument("--response-validation-manifest", type=Path,
+                   default=Path("data/response_validation_case_selection.csv"))
     p.add_argument("--responses-manifest", type=Path, default=Path("data/target_response_manifest.csv"))
     p.add_argument("--calibration-manifest", type=Path, default=Path("data/physician_calibration_selection.csv"))
     args = p.parse_args()
@@ -82,13 +84,23 @@ def main() -> None:
     if len({r["case_id"] for r in case_rows}) != 150:
         raise RuntimeError("primary casepack contains duplicate case IDs")
 
+    response_selection = read_csv(args.response_validation_manifest)
+    if len(response_selection) != 60 or len({r["case_id"] for r in response_selection}) != 60:
+        raise RuntimeError(
+            f"response-validation manifest must contain 60 unique source cases, got {len(response_selection)}")
+    family_counts = {}
+    for row in response_selection:
+        family_counts[row["primary_family"]] = family_counts.get(row["primary_family"], 0) + 1
+    if family_counts != {"missing_information": 30, "conflicting_evidence": 30}:
+        raise RuntimeError(f"response-validation family balance must be 30/30, got {family_counts}")
+
     if args.phase == "targets":
         print("PASS target preflight")
         return
 
     response_rows = read_csv(args.responses_manifest)
-    if len(response_rows) != 1200:
-        raise RuntimeError(f"target response manifest must contain 1200 cells, got {len(response_rows)}")
+    if len(response_rows) != 480:
+        raise RuntimeError(f"target response manifest must contain 480 cells, got {len(response_rows)}")
     infra = [r for r in response_rows if r["status"] in {"transport_failure", "provider_failure"}]
     if infra:
         raise RuntimeError(f"{len(infra)} infrastructure/provider failures remain; resume target execution first")
