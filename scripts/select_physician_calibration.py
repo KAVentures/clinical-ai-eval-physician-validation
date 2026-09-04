@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Select the shared physician calibration cohort before automated judge scoring.
 
-Choose the SAME 60/150 source cases for all four target models, balanced 30/30
-across the two primary perturbation families. Include both original and perturbed
-responses for every target. Selection depends only on locked case IDs/family and
-never on response content or judge labels. Reviewer-facing unit IDs are opaque.
+The same 60/150 source cases are selected for all four target models, balanced
+30/30 across perturbation families. For each case, the prespecified construct
+reviewer is excluded from response review. The other two physicians independently
+rate every original/perturbed target response for that case.
 """
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from pathlib import Path
 SEED = "clinical-ai-eval-physician-validation-v1|physician-calibration"
 N_CASES_PER_FAMILY = 30
 FAMILIES = ("missing_information", "conflicting_evidence")
+REVIEWERS = ("A", "B", "C")
 
 
 def digest(*parts: str) -> str:
@@ -42,83 +43,105 @@ def read_jsonl(path: Path) -> list[dict]:
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--responses", required=True, type=Path, help="Private target_responses JSONL")
+    p.add_argument("--responses", required=True, type=Path)
+    p.add_argument("--casepack", required=True, type=Path)
     p.add_argument("--vault", required=True, type=Path)
     p.add_argument("--public-manifest", required=True, type=Path)
+    p.add_argument("--cases-per-family", type=int, default=N_CASES_PER_FAMILY)
+    p.add_argument("--all-cases", action="store_true",
+                   help="Use every source case (used for the 50-case external replication)")
     args = p.parse_args()
 
     rows = read_jsonl(args.responses)
+    cases = {str(c["case_id"]): c for c in read_jsonl(args.casepack)}
     by_target_case = {}
-    case_family = {}
     for r in rows:
         key = (str(r["target_id"]), str(r["case_id"]), str(r["presentation"]))
         if key in by_target_case:
             raise RuntimeError(f"duplicate target response {key}")
         by_target_case[key] = r
-        cid = str(r["case_id"])
-        fam = str(r["primary_family"])
-        if cid in case_family and case_family[cid] != fam:
-            raise RuntimeError(f"case {cid} has inconsistent primary family")
-        case_family[cid] = fam
 
     targets = sorted({str(r["target_id"]) for r in rows})
     if len(targets) != 4:
-        raise RuntimeError(f"expected 4 target models, found {targets}")
+        raise RuntimeError(f"expected four target models, found {targets}")
+    if set(cases) != {str(r["case_id"]) for r in rows}:
+        raise RuntimeError("response/casepack case IDs do not match exactly")
 
-    all_cases = sorted(case_family)
-    if len(all_cases) != 150:
-        raise RuntimeError(f"expected 150 locked source cases, found {len(all_cases)}")
+    if args.all_cases:
+        chosen_cases = sorted(cases, key=case_rank)
+    else:
+        chosen_cases = []
+        for family in FAMILIES:
+            pool = sorted(
+                [cid for cid, c in cases.items() if str(c["primary_family"]) == family],
+                key=case_rank,
+            )
+            if len(pool) < args.cases_per_family:
+                raise RuntimeError(f"family {family} has only {len(pool)} cases; needs {args.cases_per_family}")
+            chosen_cases.extend(pool[: args.cases_per_family])
+        chosen_cases = sorted(chosen_cases, key=case_rank)
 
-    chosen_cases = []
-    for family in FAMILIES:
-        pool = sorted([cid for cid in all_cases if case_family[cid] == family], key=case_rank)
-        if len(pool) < N_CASES_PER_FAMILY:
-            raise RuntimeError(f"family {family} has only {len(pool)} cases; needs {N_CASES_PER_FAMILY}")
-        chosen_cases.extend(pool[:N_CASES_PER_FAMILY])
-    chosen_cases = sorted(chosen_cases, key=case_rank)
-    if len(chosen_cases) != 60 or len(set(chosen_cases)) != 60:
-        raise AssertionError("shared calibration cohort must contain exactly 60 unique cases")
-
-    selected_private = []
-    public = []
+    selected_private, public = [], []
     seen_opaque = set()
+    reviewer_load = {r: 0 for r in REVIEWERS}
+
     for cid in chosen_cases:
+        c = cases[cid]
+        construct_reviewer = str(c.get("construct_reviewer", ""))
+        if construct_reviewer not in REVIEWERS:
+            raise RuntimeError(f"case {cid} lacks a valid construct_reviewer")
+        response_reviewers = tuple(r for r in REVIEWERS if r != construct_reviewer)
+        if len(response_reviewers) != 2:
+            raise AssertionError("cross-fit response pair must contain exactly two physicians")
+
         for target_id in targets:
             for presentation in ("original", "perturbed"):
                 key = (target_id, cid, presentation)
                 if key not in by_target_case:
                     raise RuntimeError(f"missing response {key}")
                 r = by_target_case[key]
-                review_unit_id = opaque_review_id(str(r["response_id"]))
-                if review_unit_id in seen_opaque:
+                uid = opaque_review_id(str(r["response_id"]))
+                if uid in seen_opaque:
                     raise RuntimeError("opaque review-unit collision")
-                seen_opaque.add(review_unit_id)
+                seen_opaque.add(uid)
+                for reviewer in response_reviewers:
+                    reviewer_load[reviewer] += 1
+
+                meta = c.get("source_metadata") or {}
                 selected_private.append({
-                    "review_unit_id": review_unit_id,
+                    "review_unit_id": uid,
                     "case_text": r["input_text"],
                     "response_text": r["response_text"],
-                    # Internal mapping below is never copied into physician packets.
+                    "construct_reviewer_internal": construct_reviewer,
+                    "response_reviewers_internal": list(response_reviewers),
                     "source_id_internal": r["source_id"],
                     "case_id_internal": cid,
                     "primary_family_internal": r["primary_family"],
                     "presentation_internal": presentation,
                     "target_id_internal": target_id,
+                    "target_provider_internal": r.get("target_provider", ""),
                     "response_id_internal": r["response_id"],
+                    "source_type_internal": meta.get("type", ""),
+                    "source_difficulty_internal": meta.get("difficulty", ""),
+                    "specialty_internal": meta.get("specialty", ""),
                 })
                 public.append({
-                    "review_unit_id": review_unit_id,
+                    "review_unit_id": uid,
                     "source_id": r["source_id"],
                     "case_id": cid,
                     "primary_family": r["primary_family"],
                     "presentation": presentation,
+                    "construct_reviewer": construct_reviewer,
+                    "response_reviewer_pair": "+".join(response_reviewers),
                     "target_id_internal": target_id,
                     "response_id": r["response_id"],
                     "shared_case_selection_rank_sha256": case_rank(cid),
-                    "sampling_frame": "shared_60_cases_30_per_family_x_4_targets_x_2_presentations",
+                    "sampling_frame": "crossfit_shared_cases_x_4_targets_x_2_presentations",
                 })
 
-    if len(selected_private) != 480:
-        raise AssertionError(f"expected 480 review units, got {len(selected_private)}")
+    expected_units = len(chosen_cases) * 4 * 2
+    if len(selected_private) != expected_units:
+        raise AssertionError(f"expected {expected_units} review units, got {len(selected_private)}")
 
     private_path = args.vault / "review" / "physician_calibration_units.private.jsonl"
     private_path.parent.mkdir(parents=True, exist_ok=True)
@@ -129,15 +152,17 @@ def main() -> None:
     args.public_manifest.parent.mkdir(parents=True, exist_ok=True)
     fields = [
         "review_unit_id", "source_id", "case_id", "primary_family", "presentation",
-        "target_id_internal", "response_id", "shared_case_selection_rank_sha256", "sampling_frame",
+        "construct_reviewer", "response_reviewer_pair", "target_id_internal", "response_id",
+        "shared_case_selection_rank_sha256", "sampling_frame",
     ]
     with args.public_manifest.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
         w.writerows(sorted(public, key=lambda r: r["review_unit_id"]))
 
-    print("Selected shared 60-case physician calibration cohort: 30 missing-information + 30 conflict")
-    print(f"Review units: {len(selected_private)} = 60 cases x 4 targets x 2 presentations")
+    print(f"Selected {len(chosen_cases)} shared source cases -> {len(selected_private)} unique response cells")
+    print(f"Each cell has two blinded response reviewers; total physician ratings={len(selected_private) * 2}")
+    print(f"Reviewer loads={reviewer_load}")
     print(f"Private units + internal map: {private_path}")
     print(f"Public selection manifest: {args.public_manifest}")
 
