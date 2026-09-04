@@ -17,18 +17,35 @@ def main() -> None:
     p.add_argument("--metadata-out", type=Path, default=Path("data/environment_metadata.json"))
     args = p.parse_args()
 
-    freeze = subprocess.run(
+    raw_freeze = subprocess.run(
         [sys.executable, "-m", "pip", "freeze", "--all"],
         check=True, capture_output=True, text=True,
     ).stdout
-    if "clinical-ai-eval" not in freeze.lower().replace("_", "-"):
+    if "clinical-ai-eval" not in raw_freeze.lower().replace("_", "-"):
         raise RuntimeError("clinical-ai-eval is not present in pip freeze; install the study package first")
+
+    # An editable install of THIS repository can be serialized as an absolute local
+    # path (e.g. -e /home/user/...); that is not reproducible elsewhere. The study
+    # repository itself is already fixed by study_git_commit in study_lock.json, so
+    # remove only local editable lines and reinstall the checkout separately.
+    kept = []
+    for line in raw_freeze.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("-e ") and "clinical-ai-eval-physician-validation" in stripped:
+            continue
+        if stripped.startswith("-e /") or stripped.startswith("-e file:"):
+            continue
+        if stripped.startswith("# Editable install with no version control"):
+            continue
+        kept.append(line)
+    freeze = "\n".join(kept).rstrip() + "\n"
 
     args.requirements_out.parent.mkdir(parents=True, exist_ok=True)
     args.requirements_out.write_text(
-        "# Exact environment captured for the locked study run.\n"
-        "# Recreate with the Python version in environment_metadata.json, then:\n"
-        "#   python -m pip install -r data/environment_lock.txt\n"
+        "# Exact third-party environment captured for the locked study run.\n"
+        "# Check out the study_git_commit from data/study_lock.json, create the Python\n"
+        "# version in environment_metadata.json, install this file, then install the\n"
+        "# checked-out study package with: python -m pip install -e .\n"
         + freeze,
         encoding="utf-8",
     )
