@@ -19,6 +19,8 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from study_runtime.framework_adapter import import_reviewed_variant
+
 SEED = "clinical-ai-eval-physician-validation-v1"
 CROSSFIT_SEED = "clinical-ai-eval-physician-validation-v1|construct-crossfit"
 REVIEWERS = ("A", "B", "C")
@@ -184,8 +186,9 @@ def main() -> None:
     public_fields = [
         "case_id", "source_dataset", "source_id", "type", "difficulty", "specialty",
         "source_content_sha256", "primary_family", "primary_perturbation_id",
-        "construct_reviewer", "original_case_sha256", "perturbed_case_sha256",
-        "casepack_status",
+        "source_variant_id", "framework_test_id", "framework_variant_source",
+        "framework_structural_valid", "construct_reviewer",
+        "original_case_sha256", "perturbed_case_sha256", "casepack_status",
     ]
     public_rows = []
     by_pid = {r["perturbation_id"]: r for r in audit_rows}
@@ -195,10 +198,12 @@ def main() -> None:
             sid = str(r["source_id"])
             family = assigned[sid]
             d = valid_by_source[sid][family]
-            pid = str(d["perturbation_id"])
+            source_variant_id = str(d["perturbation_id"])
             rid = construct_reviewer(sid)
-            if by_pid[pid]["construct_reviewer"] != rid:
+            if by_pid[source_variant_id]["construct_reviewer"] != rid:
                 raise AssertionError("construct reviewer mapping drift")
+            framework_row, framework_validity = import_reviewed_variant(d, rid)
+            pid = str(framework_row["perturbation_id"])
             case_id = "hbpv1-" + stable_hash("case-id", sid)[:12]
             private_record = {
                 "case_id": case_id,
@@ -210,11 +215,14 @@ def main() -> None:
                 "construct_reviewer": rid,
                 "primary_family": family,
                 "primary_perturbation_id": pid,
+                "source_variant_id": source_variant_id,
+                "framework_manifest": framework_row,
+                "framework_structural_validity": framework_validity,
                 "original_case": d["original_case"],
                 "perturbed_case": d["modified_case"],
                 "changed_evidence": d.get("changed_evidence", ""),
                 "draft_safe_response_strategy": d.get("safe_response_strategy", ""),
-                "construct_validation": by_pid[pid],
+                "construct_validation": by_pid[source_variant_id],
             }
             pf.write(json.dumps(private_record, ensure_ascii=False) + "\n")
             public_rows.append({
@@ -227,6 +235,10 @@ def main() -> None:
                 "source_content_sha256": r.get("source_content_sha256", ""),
                 "primary_family": family,
                 "primary_perturbation_id": pid,
+                "source_variant_id": source_variant_id,
+                "framework_test_id": framework_row["test_id"],
+                "framework_variant_source": framework_row["variant_source"],
+                "framework_structural_valid": str(bool(framework_validity["valid"])).lower(),
                 "construct_reviewer": rid,
                 "original_case_sha256": sha256_text(d["original_case"]),
                 "perturbed_case_sha256": sha256_text(d["modified_case"]),
