@@ -71,6 +71,18 @@ def main() -> None:
     case_rows = csv_rows(args.casepack_manifest)
     if len(case_rows) != 150:
         raise RuntimeError(f"primary casepack manifest must contain exactly 150 cases, got {len(case_rows)}")
+    bad_framework = [
+        r for r in case_rows
+        if r.get("framework_variant_source") != "preconstructed"
+        or r.get("framework_structural_valid") != "true"
+        or not r.get("source_variant_id")
+        or r.get("primary_perturbation_id") == r.get("source_variant_id")
+    ]
+    if bad_framework:
+        raise RuntimeError(
+            f"{len(bad_framework)} primary cases do not prove passage through the "
+            "Clinical-AI-Eval preconstructed manifest/validity path"
+        )
     strata = {}
     for r in case_rows:
         key = (r.get("type", ""), r.get("difficulty", ""))
