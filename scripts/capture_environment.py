@@ -21,8 +21,15 @@ def main() -> None:
         [sys.executable, "-m", "pip", "freeze", "--all"],
         check=True, capture_output=True, text=True,
     ).stdout
-    if "clinical-ai-eval" not in raw_freeze.lower().replace("_", "-"):
-        raise RuntimeError("clinical-ai-eval is not present in pip freeze; install the study package first")
+    engine_lines = [
+        line for line in raw_freeze.lower().replace("_", "-").splitlines()
+        if "clinical-ai-eval" in line and "physician-validation" not in line
+    ]
+    if not engine_lines:
+        raise RuntimeError(
+            "the pinned clinical-ai-eval engine is not present in pip freeze; "
+            "install the study package and its dependencies first"
+        )
 
     # An editable install of THIS repository can be serialized as an absolute local
     # path (e.g. -e /home/user/...); that is not reproducible elsewhere. The study
