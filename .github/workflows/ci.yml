@@ -12,13 +12,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Install
-        run: python -m pip install -e .
-      - name: Compile study scripts
-        run: python -m compileall -q scripts analysis
-      - name: Guard against committed private artifacts
+        run: python -m pip install -e ".[test]"
+
+      - name: Compile all study code
+        run: python -m compileall -q scripts analysis study_runtime tests
+
+      - name: Guard against committed secrets/private artifacts
+        shell: bash
         run: |
-          if git ls-files | grep -E '(^|/)(vault|private)/|\.private\.|construct_review_[ABC]\.csv|response_review_[ABC]\.csv|response_adjudication_C\.csv'; then
-            echo "Private/reviewer artifact tracked in Git" >&2
+          set -euo pipefail
+          tracked="$(git ls-files)"
+          if printf '%s\n' "$tracked" | grep -E '(^|/)(vault|private)/|\.private\.|(^|/)API_KEYS\.local\.md$|(^|/)\.env($|\.)|construct_review_[ABC].*\.csv$|response_review_[ABC]\.csv$|response_consensus\.csv$'; then
+            echo "Secret/private/reviewer artifact is tracked in Git" >&2
             exit 1
           fi
+
+      - name: Check source selector is single, pinned implementation
+        shell: bash
+        run: |
+          test "$(grep -c '^def hbp_queue' scripts/select_cases.py)" -eq 1
+          test "$(grep -c '^def real_pocqi_queue' scripts/select_cases.py)" -eq 1
+          test "$(grep -c '^def main' scripts/select_cases.py)" -eq 1
+          grep -q 'HBP_SHA256' scripts/select_cases.py
+          grep -q 'REAL_POCQI_SHA256' scripts/select_cases.py
+          grep -q 'REAL_POCQI_REVISION' scripts/select_cases.py
+
+      - name: Run study-specific tests
+        run: pytest -q
