@@ -301,13 +301,12 @@ Finalize:
 python scripts/response_adjudication.py finalize \
   --units "$STUDY_VAULT/review/physician_calibration_units.private.jsonl" \
   --review "$STUDY_VAULT/review/responses/response_review_A.csv" \
-  --review "$STYDY_VAULT/review/responses/response_review_B.csv" \
+  --review "$STUDY_VAULT/review/responses/response_review_B.csv" \
   --review "$STUDY_VAULT/review/responses/response_review_C.csv" \
   --consensus "$STUDY_VAULT/review/responses/response_consensus.csv" \
   --out "$STUDY_VAULT/review/physician_reference.private.csv"
 ~~~
 
-**Before running:** correct the environment-variable spelling in every command if manually copied; the canonical variable is `STUDY_VAULT`.
 
 Consensus may remain `CANNOT_DETERMINE`. Such cells are reported and excluded from binary operating-characteristic denominators.
 
