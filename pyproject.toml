@@ -17,7 +17,7 @@ dependencies = [
   "scipy>=1.11",
   "statsmodels>=0.14",
   "pyarrow>=15",
-  "clinical-ai-eval @ git+https://github.com/KAVentures/clinical-ai-eval.git@648ad23e8fb6b8a877217341a4bea9e4eb5bd9ca",
+  "clinical-ai-eval @ git+https://github.com/KAVentures/clinical-ai-eval.git@9c91db4d8909f343331315a510e6e5c7aa90d676",
 ]
 
 [project.optional-dependencies]
