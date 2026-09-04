@@ -81,14 +81,17 @@ inference_policy:
   tools: disabled
   max_attempts: 4
   retry_backoff_seconds: 1.0
-  timeout_seconds: 180
-  author_max_output_tokens: 4500
-  target_max_output_tokens: 3500
-  judge_max_output_tokens: 2500
-  judge_format_attempts: 2
+  timeout_seconds: 600
+  author_max_output_tokens: 16000
+  target_max_output_tokens: 16000
+  judge_max_output_tokens: 12000
+  judge_format_attempts: 1
   note: >-
     OpenAI and xAI use their Responses APIs; Anthropic uses Messages; Google uses
     generateContent. Reasoning effort is passed exactly where independently
     verified. Gemini 3.1 Pro uses explicit thinkingLevel=high. Every call records a
     request hash, configured and provider-resolved model, endpoint, HTTP status,
-    attempt count, timing, and usage. No web/search/tools are enabled.
+    attempt count, timing, and usage. Output caps are deliberately generous because
+    reasoning tokens count toward some providers' output limits. Judge parse failure
+    is recorded after one scoring attempt rather than triggering a fresh re-judgment.
+    No web/search/tools are enabled.
