@@ -53,6 +53,20 @@ def main() -> None:
     args = p.parse_args()
 
     rows = read_jsonl(args.responses)
+    infrastructure_failures = [
+        r for r in rows if r.get("status") in {"transport_failure", "provider_failure"}
+    ]
+    if infrastructure_failures:
+        raise RuntimeError(
+            f"{len(infrastructure_failures)} transport/provider failures remain. "
+            "Resolve them with run_targets.py --resume before freezing physician calibration."
+        )
+    unknown_status = sorted({
+        str(r.get("status")) for r in rows
+        if r.get("status") not in {"ok", "model_output_failure"}
+    })
+    if unknown_status:
+        raise RuntimeError(f"unexpected target response statuses: {unknown_status}")
     cases = {str(c["case_id"]): c for c in read_jsonl(args.casepack)}
     by_target_case = {}
     for r in rows:
