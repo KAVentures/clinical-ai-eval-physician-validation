@@ -141,6 +141,7 @@ def main() -> None:
                     "target_id_internal": target_id,
                     "target_provider_internal": r.get("target_provider", ""),
                     "response_id_internal": r["response_id"],
+                    "target_status_internal": r.get("status", ""),
                     "source_type_internal": meta.get("type", ""),
                     "source_difficulty_internal": meta.get("difficulty", ""),
                     "specialty_internal": meta.get("specialty", ""),
