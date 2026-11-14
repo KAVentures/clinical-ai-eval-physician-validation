@@ -63,7 +63,8 @@ def main() -> None:
         for reviewer, g in df.groupby("reviewer_id"):
             groups.append(("reviewer", str(reviewer), g))
     for dim, value, g in groups:
-        n, s = len(g), int(g["confirmed"].sum()) if n else 0
+        n = len(g)
+        s = int(g["confirmed"].sum()) if n else 0
         lo, hi = wilson(s, n)
         out.append({
             "dimension": dim, "value": value, "n": n, "confirmed": s,

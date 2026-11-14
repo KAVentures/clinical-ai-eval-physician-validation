@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from study_runtime.providers import KEY_NAMES, load_keys
+from study_runtime.providers import KEY_NAMES, SIMULATED_ENV, load_keys, simulated_transport_enabled
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -27,6 +27,8 @@ def read_csv(path: Path) -> list[dict]:
 
 
 def require_keys(providers: set[str], key_path: Path | None) -> None:
+    if simulated_transport_enabled():
+        return
     keys = load_keys(key_path)
     missing = [KEY_NAMES[p] for p in sorted(providers) if not keys.get(KEY_NAMES[p])]
     if missing:
@@ -59,10 +61,26 @@ def main() -> None:
                    default=Path("data/response_validation_case_selection.csv"))
     p.add_argument("--responses-manifest", type=Path, default=Path("data/target_response_manifest.csv"))
     p.add_argument("--calibration-manifest", type=Path, default=Path("data/physician_calibration_selection.csv"))
+    p.add_argument("--rehearsal", action="store_true",
+                   help="Accept synthetic sources and simulated provider calls (offline rehearsal only)")
     args = p.parse_args()
 
     cfg = yaml.safe_load(args.models.read_text(encoding="utf-8"))
     check_config(cfg)
+    if not args.rehearsal:
+        if simulated_transport_enabled():
+            raise RuntimeError(f"{SIMULATED_ENV} is set: a real study phase must not run on simulated transport")
+        tainted = []
+        for path in (args.casepack_manifest, args.response_validation_manifest,
+                     args.responses_manifest, args.calibration_manifest):
+            for row in read_csv(path):
+                if ("SYNTHETIC" in str(row.get("source_dataset", ""))
+                        or str(row.get("simulated", "")).lower() == "true"
+                        or str(row.get("endpoint", "")).startswith("simulated://")):
+                    tainted.append(str(path))
+                    break
+        if tainted:
+            raise RuntimeError(f"rehearsal artifacts found where study data is expected: {tainted}")
 
     if args.phase == "authoring":
         require_keys({cfg["authoring_model"]["provider"]}, args.keys)

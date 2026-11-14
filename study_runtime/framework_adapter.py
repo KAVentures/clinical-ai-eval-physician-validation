@@ -11,6 +11,15 @@ a parallel reimplementation of the same concepts.
 from __future__ import annotations
 
 from caeval import family_sdk
+from caeval.preconstructed import PreconstructedVariantError
+
+
+class FrameworkRejection(RuntimeError):
+    """The pinned framework declined a physician-approved variant.
+
+    This is an eligibility outcome for that one variant, not a crash: callers
+    exclude it with the recorded reason and continue down the priority queue.
+    """
 
 
 def import_reviewed_variant(draft: dict, review: dict) -> tuple[dict, dict, dict]:
@@ -50,7 +59,31 @@ def import_reviewed_variant(draft: dict, review: dict) -> tuple[dict, dict, dict
         "dataset": str(draft.get("source_dataset", "")),
         "ground_truth_label": "",
     }
-    row = fam.ingest_preconstructed_variant(
+    try:
+        row = _ingest(fam, case, family_id, modified, expected, removed_fields, provenance,
+                      source_variant_id, draft)
+    except PreconstructedVariantError as exc:
+        raise FrameworkRejection(
+            f"Clinical-AI-Eval manifest import rejected reviewed variant {source_variant_id}: {exc}"
+        ) from exc
+    structural = fam.audit_variant(row, original)
+    if not structural.valid:
+        raise FrameworkRejection(
+            f"Clinical-AI-Eval structural validity gate rejected reviewed variant "
+            f"{source_variant_id}: {structural.reasons}"
+        )
+    human = fam.confirm_preconstructed_variant(row, original, review)
+    if not human.valid or human.requires_human_validity_confirmation:
+        raise FrameworkRejection(
+            f"Clinical-AI-Eval human validity confirmation rejected reviewed variant "
+            f"{source_variant_id}: {human.reasons}"
+        )
+    return row, structural.as_dict(), human.as_dict()
+
+
+def _ingest(fam, case, family_id, modified, expected, removed_fields, provenance,
+            source_variant_id, draft) -> dict:
+    return fam.ingest_preconstructed_variant(
         case,
         {
             "family_id": family_id,
@@ -67,16 +100,3 @@ def import_reviewed_variant(draft: dict, review: dict) -> tuple[dict, dict, dict
         },
         require_reviewed=True,
     )
-    structural = fam.audit_variant(row, original)
-    if not structural.valid:
-        raise RuntimeError(
-            f"Clinical-AI-Eval structural validity gate rejected reviewed variant "
-            f"{source_variant_id}: {structural.reasons}"
-        )
-    human = fam.confirm_preconstructed_variant(row, original, review)
-    if not human.valid or human.requires_human_validity_confirmation:
-        raise RuntimeError(
-            f"Clinical-AI-Eval human validity confirmation rejected reviewed variant "
-            f"{source_variant_id}: {human.reasons}"
-        )
-    return row, structural.as_dict(), human.as_dict()

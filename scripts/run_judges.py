@@ -20,6 +20,7 @@ from pathlib import Path
 import yaml
 
 from caeval.score import parse_judge_json
+from study_runtime.journal import append_record, compact, load_latest, refuse_overwrite
 from study_runtime.providers import call_provider, load_keys
 
 
@@ -86,11 +87,8 @@ def main() -> None:
     private_out.parent.mkdir(parents=True, exist_ok=True)
     args.public_manifest.parent.mkdir(parents=True, exist_ok=True)
 
-    existing: dict[str, dict] = {}
-    if args.resume:
-        for r in read_jsonl(private_out):
-            existing[str(r["judge_evaluation_id"])] = r
-    records = dict(existing)
+    refuse_overwrite(private_out, args.resume, "judge scores")
+    records = load_latest(private_out, "judge_evaluation_id")
 
     for u in units:
         response_id = str(u["response_id_internal"])
@@ -120,6 +118,7 @@ def main() -> None:
                 "parse_error": "",
                 "provider_meta": {},
             }
+            append_record(private_out, records[eid])
             print(eid, "not_scored_target_output_failure")
             continue
 
@@ -169,18 +168,17 @@ def main() -> None:
             "parse_error": parse_error,
             "provider_meta": meta,
         }
+        append_record(private_out, records[eid])
         print(eid, status)
 
-    with private_out.open("w", encoding="utf-8") as pf:
-        for eid in sorted(records):
-            pf.write(json.dumps(records[eid], ensure_ascii=False) + "\n")
+    compact(private_out, records)
 
     fields = [
         "judge_evaluation_id", "review_unit_id", "response_id", "case_id",
         "presentation", "primary_family", "target_id", "target_provider",
         "same_provider_target_judge", "judge_id", "judge_provider",
         "configured_model", "resolved_model", "judge_mode", "reasoning_effort",
-        "request_sha256", "attempts", "http_status", "score_sha256", "status",
+        "request_sha256", "attempts", "http_status", "simulated", "score_sha256", "status",
     ]
     with args.public_manifest.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -207,6 +205,7 @@ def main() -> None:
                 "request_sha256": pm.get("request_sha256") or "",
                 "attempts": pm.get("attempts") or "",
                 "http_status": pm.get("http_status") if pm.get("http_status") is not None else "",
+                "simulated": str(bool(pm.get("simulated", False))).lower(),
                 "score_sha256": sha_obj(r["score"]) if r.get("score") is not None else "",
                 "status": r["status"],
             })

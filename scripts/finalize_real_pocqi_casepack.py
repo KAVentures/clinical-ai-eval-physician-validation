@@ -9,7 +9,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from study_runtime.framework_adapter import import_reviewed_variant
+from study_runtime.framework_adapter import FrameworkRejection, import_reviewed_variant
 
 SEED = "clinical-ai-eval-physician-validation-v1"
 CROSSFIT_SEED = "clinical-ai-eval-physician-validation-v1|construct-crossfit"
@@ -56,6 +56,34 @@ def sha(text: str) -> str:
     return hashlib.sha256((text or "").encode()).hexdigest()
 
 
+def admit_through_framework(pid: str, draft: dict, review: dict, cache: dict, exclusions: list) -> bool:
+    """Physician validity is necessary, not sufficient: the variant must also pass
+    the pinned framework's manifest, structural and human-confirmation contracts.
+    A rejection excludes that variant with its reason; it does not abort the pack."""
+    try:
+        cache[pid] = import_reviewed_variant(draft, review)
+        return True
+    except FrameworkRejection as exc:
+        exclusions.append({
+            "perturbation_id": pid,
+            "source_id": str(draft["source_id"]),
+            "family": str(draft["family"]),
+            "exclusion_reason": "framework_rejection",
+            "detail": str(exc).split(": ", 1)[-1],
+        })
+        return False
+
+
+def write_exclusions(public_out: Path, exclusions: list) -> Path:
+    path = public_out.with_name(public_out.stem + "_framework_exclusions.csv")
+    fields = ["perturbation_id", "source_id", "family", "exclusion_reason", "detail"]
+    with path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        w.writerows(sorted(exclusions, key=lambda r: r["perturbation_id"]))
+    return path
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--drafts", required=True, type=Path)
@@ -83,8 +111,10 @@ def main() -> None:
             reviews[pid] = row
 
     valid_by_source: dict[str, dict[str, dict]] = defaultdict(dict)
-    for pid, row in reviews.items():
-        if row_valid(row):
+    framework: dict[str, tuple] = {}
+    exclusions: list[dict] = []
+    for pid, row in sorted(reviews.items()):
+        if row_valid(row) and admit_through_framework(pid, drafts[pid], row, framework, exclusions):
             d = drafts[pid]
             sid, family = str(d["source_id"]), str(d["family"])
             if family in valid_by_source[sid]:
@@ -143,9 +173,7 @@ def main() -> None:
             d = valid_by_source[sid][family]
             case_id = "rpv1-" + stable_hash("rp-case", sid)[:12]
             rid = construct_reviewer(sid)
-            framework_row, framework_validity, framework_human_validity = import_reviewed_variant(
-                d, reviews[str(d["perturbation_id"])]
-            )
+            framework_row, framework_validity, framework_human_validity = framework[str(d["perturbation_id"])]
             rec = {
                 "case_id": case_id,
                 "source_dataset": r["source_dataset"],
@@ -190,6 +218,8 @@ def main() -> None:
     with args.public_out.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader(); w.writerows(pub)
+    exclusions_path = write_exclusions(args.public_out, exclusions)
+    print(f"Framework exclusions among physician-valid variants: {len(exclusions)} ({exclusions_path})")
     print(f"Final Real-POCQi external pack: {N_CASES} cases ({n_missing} missing, {n_conflict} conflict)")
     print(private_out)
     print(args.public_out)

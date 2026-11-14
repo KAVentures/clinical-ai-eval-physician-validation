@@ -90,12 +90,31 @@ def write_csv(path: Path, rows: list[dict], fields: list[str]) -> None:
         w.writerows(rows)
 
 
-def hbp_queue(vault: Path, public_dir: Path) -> None:
-    raw = fetch(HBP_URL)
+def parse_jsonl(raw: bytes) -> list[dict]:
+    """Split on LF only.
+
+    str.splitlines() also breaks on U+2028, U+0085, form feed and other characters
+    that are legal inside a JSON string. The pinned HealthBench Professional file
+    contains them, so splitlines() yields 529 fragments for 525 records and the
+    parse fails.
+    """
+    return [json.loads(line) for line in raw.decode("utf-8").split("\n") if line.strip()]
+
+
+def hbp_queue(vault: Path, public_dir: Path, *, raw: bytes | None = None,
+              synthetic_label: str | None = None) -> None:
+    """`raw` + `synthetic_label` are for the offline rehearsal only: the pinned
+    digest cannot match a synthetic file, so the digest check is replaced by an
+    explicit label written into every row. All structural checks still apply."""
+    if (raw is None) != (synthetic_label is None):
+        raise ValueError("raw and synthetic_label must be supplied together")
+    if raw is None:
+        raw = fetch(HBP_URL)
     digest = sha256_bytes(raw)
-    if digest != HBP_SHA256:
+    if synthetic_label is None and digest != HBP_SHA256:
         raise RuntimeError(f"HealthBench Professional digest mismatch: {digest}")
-    rows = [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
+    dataset_name = synthetic_label or "openai/healthbench-professional"
+    rows = parse_jsonl(raw)
     if len(rows) != HBP_EXPECTED_TOTAL:
         raise RuntimeError(f"expected {HBP_EXPECTED_TOTAL} HBP rows, got {len(rows)}")
 
@@ -119,9 +138,9 @@ def hbp_queue(vault: Path, public_dir: Path) -> None:
                 "physician_response": record.get("physician_response"),
             }))
             pub = {
-                "source_dataset": "openai/healthbench-professional",
-                "source_revision": HBP_REVISION,
-                "source_file_sha256": HBP_SHA256,
+                "source_dataset": dataset_name,
+                "source_revision": HBP_REVISION if synthetic_label is None else "synthetic",
+                "source_file_sha256": digest,
                 "source_id": source_id,
                 "type": kind,
                 "difficulty": difficulty,
@@ -156,10 +175,11 @@ def hbp_queue(vault: Path, public_dir: Path) -> None:
     print(f"  private: {private_path}")
 
 
-def fetch_real_pocqi_questions() -> list[dict]:
-    raw = fetch(REAL_POCQI_URL)
+def fetch_real_pocqi_questions(raw: bytes | None = None, synthetic: bool = False) -> list[dict]:
+    if raw is None:
+        raw = fetch(REAL_POCQI_URL)
     digest = sha256_bytes(raw)
-    if digest != REAL_POCQI_SHA256:
+    if not synthetic and digest != REAL_POCQI_SHA256:
         raise RuntimeError(f"Real-POCQi questions.parquet digest mismatch: {digest}")
     rows = pd.read_parquet(BytesIO(raw)).to_dict(orient="records")
     if len(rows) != REAL_POCQI_EXPECTED_TOTAL:
@@ -174,8 +194,12 @@ def real_pocqi_eligible_text(text: str) -> bool:
     return bool(PATIENT_SIGNALS.search(text) and DECISION_SIGNALS.search(text))
 
 
-def real_pocqi_queue(vault: Path, public_dir: Path) -> None:
-    rows = fetch_real_pocqi_questions()
+def real_pocqi_queue(vault: Path, public_dir: Path, *, raw: bytes | None = None,
+                     synthetic_label: str | None = None) -> None:
+    if (raw is None) != (synthetic_label is None):
+        raise ValueError("raw and synthetic_label must be supplied together")
+    rows = fetch_real_pocqi_questions(raw, synthetic=synthetic_label is not None)
+    dataset_name = synthetic_label or REAL_POCQI_DATASET
     corpus_digest = sha256_bytes(canonical_json(sorted(rows, key=lambda r: str(r.get("question_id", "")))))
     eligible = [r for r in rows if real_pocqi_eligible_text(str(r.get("question_text", "")))]
     eligible.sort(key=lambda r: stable_rank(str(r["question_id"]), "real-pocqi"))
@@ -185,9 +209,9 @@ def real_pocqi_queue(vault: Path, public_dir: Path) -> None:
         qid = str(record["question_id"])
         text = str(record.get("question_text", ""))
         pub = {
-            "source_dataset": REAL_POCQI_DATASET,
-            "source_revision": REAL_POCQI_REVISION,
-            "source_file_sha256": REAL_POCQI_SHA256,
+            "source_dataset": dataset_name,
+            "source_revision": REAL_POCQI_REVISION if synthetic_label is None else "synthetic",
+            "source_file_sha256": REAL_POCQI_SHA256 if synthetic_label is None else "synthetic",
             "source_corpus_sha256": corpus_digest,
             "source_id": qid,
             "specialty": record.get("specialty", ""),

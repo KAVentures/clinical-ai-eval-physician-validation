@@ -56,12 +56,17 @@ def main() -> None:
     p.add_argument("--response-validation-manifest", type=Path,
                    default=Path("data/response_validation_case_selection.csv"))
     p.add_argument("--out", type=Path, default=Path("data/study_lock.json"))
+    p.add_argument("--models", type=Path, default=Path("configs/model_panel.yaml"))
+    p.add_argument("--environment-dir", type=Path, default=Path("data"),
+                   help="Directory holding environment_lock.txt and environment_metadata.json")
+    p.add_argument("--rehearsal", action="store_true",
+                   help="Lock a synthetic rehearsal. The manifest is marked and is not a study lock.")
     args = p.parse_args()
 
     if not re.fullmatch(r"[0-9a-f]{40}", args.git_commit):
         raise RuntimeError("--git-commit must be a full 40-character commit SHA")
 
-    cfg_path = Path("configs/model_panel.yaml")
+    cfg_path = args.models
     cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
     if cfg.get("authoring_frozen") is not True:
         raise RuntimeError("authoring_frozen must be true before study lock")
@@ -99,9 +104,25 @@ def main() -> None:
     files = {}
     for raw in DEFAULT_FILES:
         path = Path(raw)
+        if raw == "configs/model_panel.yaml":
+            path = cfg_path
+        elif raw.startswith("data/environment_"):
+            path = args.environment_dir / Path(raw).name
         if not path.exists():
             raise RuntimeError(f"required lock file missing: {path}")
-        files[str(path)] = sha_file(path)
+        files[raw] = sha_file(path)
+
+    synthetic = [
+        str(path) for path in (args.casepack_manifest, args.hbp_candidates, args.real_pocqi_candidates)
+        if path.exists() and any("SYNTHETIC" in str(r.get("source_dataset", "")) for r in csv_rows(path))
+    ]
+    if synthetic and not args.rehearsal:
+        raise RuntimeError(
+            f"refusing to write a study lock over synthetic rehearsal data: {synthetic}"
+        )
+    if args.rehearsal and not synthetic:
+        raise RuntimeError("--rehearsal was given but the manifests are not synthetic rehearsal data")
+
     response_rows = csv_rows(args.response_validation_manifest)
     if len(response_rows) != 60 or len({r["case_id"] for r in response_rows}) != 60:
         raise RuntimeError("response-validation manifest must contain exactly 60 unique cases")
@@ -123,7 +144,9 @@ def main() -> None:
         raise RuntimeError("ENGINE_PIN.md does not contain a full engine commit SHA")
 
     lock = {
-        "schema": "clinical-ai-eval-physician-validation.study-lock.v1",
+        "schema": "clinical-ai-eval-physician-validation.study-lock.v1"
+                  + (".REHEARSAL-NOT-A-STUDY-LOCK" if args.rehearsal else ""),
+        "rehearsal": bool(args.rehearsal),
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "study_git_commit": args.git_commit,
         "engine_git_commit": m.group(1),

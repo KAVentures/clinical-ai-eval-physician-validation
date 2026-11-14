@@ -16,6 +16,19 @@ python -m pip install -e ".[test]"
 python scripts/rehearse_study.py
 ~~~
 
+`rehearse_study.py` runs the unit tests and then every phase below, in order, as
+real subprocesses at full study size (150-source pack, 480 response cells, 960
+ratings, 480 judge calls, the 50-source external cohort) with no network: synthetic
+sources, simulated providers, rule-based reviewers. It takes under a minute. Use
+`--keep /some/new/dir` to inspect every intermediate file it writes. It tests the
+machinery only; nothing it prints is a result. A failed rehearsal is a stop
+condition.
+
+Every run script that spends money (`draft_perturbations.py`, `run_targets.py`,
+`run_judges.py`) saves each completed call to disk before starting the next, and
+refuses to start over an existing output file. After any interruption, rerun the
+same command with `--resume`.
+
 Define the private vault:
 
 ~~~bash
@@ -66,7 +79,7 @@ python scripts/draft_perturbations.py \
   --limit 5
 ~~~
 
-Inspect those drafts only for technical/schema/task-drift failures. Delete dry-run outputs before the full authoring run.
+Inspect those drafts only for technical/schema/task-drift failures. Delete the dry-run output (`$STUDY_VAULT/drafts/perturbations.private.jsonl`) before the full authoring run; the script will not overwrite it for you.
 
 Then set:
 
@@ -88,6 +101,8 @@ python scripts/draft_perturbations.py \
   --vault "$STUDY_VAULT" \
   --models configs/model_panel.yaml
 ~~~
+
+If the run is interrupted, or ends by listing sources whose draft was unusable (malformed JSON, a variant identical to its source), rerun the same command with `--resume` until none remain.
 
 Drafts remain scientifically invalid until physician construct review.
 
@@ -152,8 +167,14 @@ Finalization also imports every accepted variant through the pinned Clinical-AI-
 `YamlFamily.ingest_preconstructed_variant()` path. The public manifest must show
 `framework_variant_source=preconstructed`, `framework_structural_valid=true`,
 a study `source_variant_id`, and a distinct framework
-`primary_perturbation_id`. If this framework import fails, the casepack does not
-finalize.
+`primary_perturbation_id`.
+
+A physician-valid variant that the framework declines is not eligible. It is
+excluded with its reason in `data/primary_casepack_manifest_framework_exclusions.csv`
+and the next source in priority order takes the slot; it never aborts the pack. If
+that leaves a stratum short, finalization reports `NEEDS_FALLBACK_REVIEW` and names
+the excluded IDs: add `--framework-excluded ID [ID ...]` to the fallback command
+above so those sources are offered their alternate variant.
 
 ## Phase 5 — freeze the 60-source response-validation cohort BEFORE target calls
 
@@ -177,7 +198,13 @@ This happens before any target response exists.
 
 ## Phase 6 — live endpoint smoke tests, environment capture and full study lock
 
-Using non-study prompts, technically verify every configured author/target/judge endpoint and credential. Confirm that provider-resolved model IDs, reasoning settings, HTTP status and request hashes are populated.
+Using a non-study prompt, verify every configured author/target/judge endpoint and credential:
+
+~~~bash
+python scripts/smoke_test_providers.py
+~~~
+
+It sends one harmless prompt per configured model through the study runtime, writes `data/provider_smoke_test.csv`, and exits non-zero if any model does not answer. Compare each `resolved_model` with the ID you intend to freeze, and confirm `finish_reason` shows a normal completion at the configured reasoning setting. The model IDs in `configs/model_panel.yaml` have never been called from this repository; this is the step that proves them.
 
 Run the design simulation:
 
@@ -235,6 +262,8 @@ Expected:
 If `transport_failure` or `provider_failure` remains, fix infrastructure and rerun with `--resume`. Do not freeze physician packets until those infrastructure failures are resolved.
 
 A successful API response with no usable text is `model_output_failure` and remains a separate product failure endpoint.
+
+A response that has text but did not finish normally (cut off at the output cap, or declined) keeps status `ok`, because it is what the model produced, and is flagged by `finish_reason` / `output_complete=false` in the manifest. The script lists them. Decide and document before lock how reviewers are told to treat a visibly truncated or empty response; the packets currently present them as-is.
 
 ## Phase 8 — create the 480 cross-fitted physician response cells
 
@@ -380,7 +409,18 @@ This audit occurs after response blinding can no longer be contaminated.
 
 Use the already pinned Real-POCQi candidate queue and the same frozen definitions. Freeze the external 50-case pack **before inspecting primary outcome results**.
 
-Draft, cross-fit construct-review and finalize:
+Draft into a separate file so the external cohort can never touch the primary drafts:
+
+~~~bash
+python scripts/draft_perturbations.py \
+  --sources "$STUDY_VAULT/sources/real_pocqi_candidates.private.jsonl" \
+  --vault "$STUDY_VAULT" \
+  --models configs/model_panel.yaml \
+  --out-name real_pocqi_perturbations.private.jsonl \
+  --public-manifest data/real_pocqi_perturbation_drafts_manifest.csv
+~~~
+
+Cross-fit construct-review (`make_construct_packets.py` on that drafts file) and finalize:
 
 ~~~bash
 python scripts/finalize_real_pocqi_casepack.py \

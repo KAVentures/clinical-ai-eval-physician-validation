@@ -18,6 +18,7 @@ review/response_consensus.csv
 
 # Local Python artifacts
 __pycache__/
+*.egg-info/
 *.pyc
 .pytest_cache/
 .venv/

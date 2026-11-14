@@ -69,18 +69,26 @@ After installation, verify the complete deterministic machinery without API keys
 python scripts/rehearse_study.py
 ~~~
 
-It compiles the code and exercises synthetic tests covering:
+It runs the unit tests, then executes every RUNBOOK phase in order as real
+subprocesses with real file hand-offs, at full study size:
 
-- provider request/retry semantics;
-- 150-case primary casepack finalization;
-- deterministic fallback review;
-- 50-case Real-POCQi finalization;
-- 60-source response-validation selection;
-- 480-cell four-target response frame;
-- cross-fitted physician packet assignment;
-- CANNOT_DETERMINE and locked consensus;
-- single-judge missingness/threshold analysis;
-- clustered precision simulation.
+- source queues from synthetic files shaped like both pinned datasets;
+- drafting, with the freeze gate, an interruption, a resume and an overwrite refusal;
+- cross-fitted construct review with a forced fallback wave, and the 150-case pack
+  through the pinned framework's manifest, structural and human-confirmation gates;
+- the 60-source selection, endpoint smoke test, environment capture, preflight and lock;
+- 480 target responses including retried rate limits, empty outputs and truncated outputs;
+- 480 judge calls including unparseable output and a torn file from a killed process;
+- 960 blinded ratings, consensus, the physician reference with CANNOT_DETERMINE retained;
+- the primary analysis, all SAP outputs, and the construct reliability audit;
+- the 50-source external cohort (400 cells), kept apart from the primary files;
+- a check that no private text reached any public file, and that preflight and the
+  study lock refuse rehearsal artifacts.
+
+Only three things are substituted: sources are synthetic, providers are answered by
+`study_runtime/simulated.py` in each provider's real response shape, and reviewers
+are rule-based form fillers. The rehearsal therefore validates the machinery and
+nothing clinical. `python scripts/rehearse_study.py --keep DIR` keeps every file.
 
 A failed rehearsal is a stop condition.
 

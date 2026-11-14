@@ -15,6 +15,7 @@ from pathlib import Path
 
 import yaml
 
+from study_runtime.journal import append_record, compact, load_latest, refuse_overwrite
 from study_runtime.providers import call_provider, load_keys
 
 TERMINAL = {"ok", "model_output_failure"}
@@ -79,12 +80,8 @@ def main() -> None:
     private_out.parent.mkdir(parents=True, exist_ok=True)
     args.public_manifest.parent.mkdir(parents=True, exist_ok=True)
 
-    existing: dict[str, dict] = {}
-    if args.resume:
-        for row in read_jsonl(private_out):
-            existing[str(row["response_id"])] = row
-
-    records = dict(existing)
+    refuse_overwrite(private_out, args.resume, "target responses")
+    records = load_latest(private_out, "response_id")
     for case in cases:
         meta = case.get("source_metadata") or {}
         for presentation in ("original", "perturbed"):
@@ -125,20 +122,19 @@ def main() -> None:
                     "status": status,
                     "provider_meta": provider_meta,
                 }
+                # Persist before the next call: this response was paid for.
+                append_record(private_out, records[response_id])
                 print(response_id, status)
 
-    # Rewrite atomically at the logical-record level so retried failures do not
-    # leave duplicate response IDs in the frozen private file.
-    with private_out.open("w", encoding="utf-8") as pf:
-        for response_id in sorted(records):
-            pf.write(json.dumps(records[response_id], ensure_ascii=False) + "\n")
+    # One record per response ID, so a retried failure leaves no duplicate.
+    compact(private_out, records)
 
     fields = [
         "response_id", "case_id", "source_id", "source_dataset", "primary_family",
         "presentation", "target_id", "target_provider", "configured_model",
         "resolved_model", "reasoning_effort", "max_output_tokens", "endpoint",
-        "request_sha256", "attempts", "http_status", "input_sha256", "response_sha256",
-        "status", "usage_json",
+        "request_sha256", "attempts", "http_status", "finish_reason", "output_complete",
+        "simulated", "input_sha256", "response_sha256", "status", "usage_json",
     ]
     with args.public_manifest.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -163,6 +159,9 @@ def main() -> None:
                 "request_sha256": pm.get("request_sha256") or "",
                 "attempts": pm.get("attempts") or "",
                 "http_status": pm.get("http_status") if pm.get("http_status") is not None else "",
+                "finish_reason": pm.get("finish_reason") or "",
+                "output_complete": str(bool(pm.get("output_complete", True))).lower(),
+                "simulated": str(bool(pm.get("simulated", False))).lower(),
                 "input_sha256": sha(r["input_text"]),
                 "response_sha256": sha(r["response_text"]),
                 "status": r["status"],
@@ -177,6 +176,16 @@ def main() -> None:
     print(f"Status counts: {counts}")
     if any(k in counts for k in ("transport_failure", "provider_failure")):
         print("STOP: infrastructure/API failures remain. Resolve and --resume before calibration selection.")
+    cut_off = sorted(
+        rid for rid, r in records.items()
+        if r["status"] == "ok" and (r.get("provider_meta") or {}).get("output_complete") is False
+    )
+    if cut_off:
+        print(
+            f"NOTE: {len(cut_off)} responses have text but did not finish normally "
+            "(output cap or refusal; see finish_reason). They stay in the study as the "
+            f"model's output and are counted in the analysis. First: {cut_off[:3]}"
+        )
 
 
 if __name__ == "__main__":

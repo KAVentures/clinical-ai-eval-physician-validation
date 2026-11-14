@@ -60,7 +60,10 @@ def first_choice(source_id: str, variants: list[dict]) -> dict:
     return by_family.get(preferred) or sorted(variants, key=lambda v: str(v["family"]))[0]
 
 
-def prior_state(paths: list[Path]) -> tuple[set[str], set[str]]:
+def prior_state(paths: list[Path],
+                framework_excluded: frozenset[str] = frozenset()) -> tuple[set[str], set[str]]:
+    """A variant a physician accepted but the framework gate rejected never entered
+    the casepack, so it does not make its source 'already valid'."""
     reviewed_pids: set[str] = set()
     sources_with_valid: set[str] = set()
     for path in paths:
@@ -69,12 +72,14 @@ def prior_state(paths: list[Path]) -> tuple[set[str], set[str]]:
             sid = str(row.get("source_id", "")).strip()
             if pid:
                 reviewed_pids.add(pid)
-            if sid and str(row.get("decision", "")).strip().lower() in VALID:
+            if (sid and pid not in framework_excluded
+                    and str(row.get("decision", "")).strip().lower() in VALID):
                 sources_with_valid.add(sid)
     return reviewed_pids, sources_with_valid
 
 
-def select_drafts(applicable: list[dict], mode: str, prior: list[Path]) -> list[dict]:
+def select_drafts(applicable: list[dict], mode: str, prior: list[Path],
+                  framework_excluded: frozenset[str] = frozenset()) -> list[dict]:
     grouped: dict[str, list[dict]] = defaultdict(list)
     for d in applicable:
         grouped[str(d["source_id"])].append(d)
@@ -88,7 +93,7 @@ def select_drafts(applicable: list[dict], mode: str, prior: list[Path]) -> list[
 
     if not prior:
         raise ValueError("--mode fallback requires at least one --prior-review file")
-    reviewed_pids, valid_sources = prior_state(prior)
+    reviewed_pids, valid_sources = prior_state(prior, framework_excluded)
     out = []
     for sid, variants in grouped.items():
         if sid in valid_sources:
@@ -107,6 +112,8 @@ def main() -> None:
     p.add_argument("--reviewers", nargs="+", default=list(DEFAULT_REVIEWERS))
     p.add_argument("--mode", choices=["first", "fallback", "all"], default="first")
     p.add_argument("--prior-review", action="append", type=Path, default=[])
+    p.add_argument("--framework-excluded", nargs="*", default=[],
+                   help="perturbation_ids that finalize_casepack reported as framework exclusions")
     args = p.parse_args()
 
     reviewers = tuple(str(x) for x in args.reviewers)
@@ -114,7 +121,7 @@ def main() -> None:
         raise ValueError("primary cross-fitted design requires exactly three distinct physician IDs")
 
     applicable = [d for d in load_jsonl(args.drafts) if d.get("applicable_draft")]
-    drafts = select_drafts(applicable, args.mode, args.prior_review)
+    drafts = select_drafts(applicable, args.mode, args.prior_review, frozenset(args.framework_excluded))
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     assigned: dict[str, list[dict]] = {r: [] for r in reviewers}

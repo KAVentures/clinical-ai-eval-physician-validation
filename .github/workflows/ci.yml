@@ -48,5 +48,5 @@ jobs:
       - name: Run study-specific tests
         run: pytest -q
 
-      - name: Run documented no-network study rehearsal
-        run: python scripts/rehearse_study.py
+      - name: Run the documented no-network end-to-end rehearsal
+        run: python scripts/rehearse_study.py --skip-unit-tests

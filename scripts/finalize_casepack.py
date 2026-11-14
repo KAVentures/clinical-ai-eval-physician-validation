@@ -19,7 +19,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from study_runtime.framework_adapter import import_reviewed_variant
+from study_runtime.framework_adapter import FrameworkRejection, import_reviewed_variant
 
 SEED = "clinical-ai-eval-physician-validation-v1"
 CROSSFIT_SEED = "clinical-ai-eval-physician-validation-v1|construct-crossfit"
@@ -94,6 +94,34 @@ def load_reviews(paths: list[Path], drafts: dict[str, dict]) -> dict[str, dict]:
     return out
 
 
+def admit_through_framework(pid: str, draft: dict, review: dict, cache: dict, exclusions: list) -> bool:
+    """Physician validity is necessary, not sufficient: the variant must also pass
+    the pinned framework's manifest, structural and human-confirmation contracts.
+    A rejection excludes that variant with its reason; it does not abort the pack."""
+    try:
+        cache[pid] = import_reviewed_variant(draft, review)
+        return True
+    except FrameworkRejection as exc:
+        exclusions.append({
+            "perturbation_id": pid,
+            "source_id": str(draft["source_id"]),
+            "family": str(draft["family"]),
+            "exclusion_reason": "framework_rejection",
+            "detail": str(exc).split(": ", 1)[-1],
+        })
+        return False
+
+
+def write_exclusions(public_out: Path, exclusions: list) -> Path:
+    path = public_out.with_name(public_out.stem + "_framework_exclusions.csv")
+    fields = ["perturbation_id", "source_id", "family", "exclusion_reason", "detail"]
+    with path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        w.writerows(sorted(exclusions, key=lambda r: r["perturbation_id"]))
+    return path
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--drafts", required=True, type=Path)
@@ -114,15 +142,19 @@ def main() -> None:
 
     valid_by_source: dict[str, dict[str, dict]] = defaultdict(dict)
     audit_rows = []
+    framework: dict[str, tuple] = {}
+    exclusions: list[dict] = []
     for pid, row in sorted(reviews.items()):
         d = drafts[pid]
-        valid = row_valid(row)
         sid, family = str(d["source_id"]), str(d["family"])
+        physician_valid = row_valid(row)
+        valid = physician_valid and admit_through_framework(pid, d, row, framework, exclusions)
         audit_rows.append({
             "perturbation_id": pid,
             "source_id": sid,
             "family": family,
             "construct_reviewer": row["reviewer_id"],
+            "physician_construct_valid": physician_valid,
             "final_construct_valid": valid,
             "decision": row.get("decision", ""),
             "notes": row.get("notes", ""),
@@ -141,7 +173,10 @@ def main() -> None:
             raise RuntimeError(
                 f"NEEDS_FALLBACK_REVIEW: stratum {(kind, difficulty)} has {len(accepted)} "
                 f"construct-valid reviewed sources; needs {quota}. Generate a deterministic fallback wave "
-                "with make_construct_packets.py --mode fallback before any target-model call."
+                "with make_construct_packets.py --mode fallback before any target-model call. "
+                f"({len(exclusions)} physician-valid variants were excluded by the framework gate: "
+                f"{[e['perturbation_id'] for e in exclusions][:5]}; pass them to the fallback wave "
+                "with --framework-excluded.)"
             )
         selected.extend(accepted[:quota])
 
@@ -202,9 +237,7 @@ def main() -> None:
             rid = construct_reviewer(sid)
             if by_pid[source_variant_id]["construct_reviewer"] != rid:
                 raise AssertionError("construct reviewer mapping drift")
-            framework_row, framework_validity, framework_human_validity = import_reviewed_variant(
-                d, reviews[source_variant_id]
-            )
+            framework_row, framework_validity, framework_human_validity = framework[source_variant_id]
             pid = str(framework_row["perturbation_id"])
             case_id = "hbpv1-" + stable_hash("case-id", sid)[:12]
             private_record = {
@@ -257,6 +290,7 @@ def main() -> None:
         w.writeheader()
         w.writerows(public_rows)
 
+    exclusions_path = write_exclusions(args.public_out, exclusions)
     audit_path = args.vault / "casepack" / "construct_review_audit.private.json"
     audit_path.write_text(json.dumps(audit_rows, indent=2), encoding="utf-8")
 
@@ -264,6 +298,7 @@ def main() -> None:
     print("Each case has one prespecified construct reviewer; the other two physicians remain response-blinded.")
     print(f"Private casepack: {private_out}")
     print(f"Public manifest: {args.public_out}")
+    print(f"Framework exclusions among physician-valid variants: {len(exclusions)} ({exclusions_path})")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,28 @@
 This study is designed against:
 
 - Repository: `KAVentures/clinical-ai-eval`
-- Commit: `cb2c55146252e7c7100c388d5ecebd0d4bd4f14a`
+- Commit: `14371d921c1ea6262c8ebe5b023bcdfbacff5630`
+
+**Pin status (2026-11-14): provisional.** This commit is engine `main` as of
+2026-11-13 (`5fd7ab5`) plus one fix, and it currently lives on the engine branch
+`claude/intelligent-wright-ia7wf7`, not yet on `main`. Once that branch is merged,
+re-pin to the resulting `main` commit before lock (a squash merge changes the SHA),
+update `pyproject.toml` and `requirements.txt` to match, and rerun
+`python scripts/rehearse_study.py`.
+
+Why the pin moved from `cb2c551`:
+
+- `cb2c551` rejected physician-valid variants for surface traits of the *source*
+  query (an unpunctuated ending on a short word; the substrings `translate`,
+  `summarize`, `icd-10`). Measured on the real pinned HealthBench Professional file,
+  24 of the 236 consult sources (10%) would have been rejected before any physician
+  judgement counted, and each rejection aborted casepack finalization. The fix
+  applies those two heuristics to a preconstructed variant only when the edit
+  introduced the trait (engine `CORRECTIONS.md`, v0.21.1).
+- Engine `main` now parses judge output strictly: every 0/1 field must be a bare
+  integer 0 or 1, and `correct_abstention` and `excessive_abstention` may not both
+  be 1. Anything else is a judge parse failure, i.e. a missing measurement. The
+  study judge prompt states both rules.
 
 The pinned framework commit is the exact Clinical-AI-Eval version this study prospectively validates. The final physician-approved perturbations enter through its first-class preconstructed-variant family SDK path, so the study exercises framework code rather than a parallel study-only manifestation contract. It supplies the shared scoring contract and judge-schema parsing and, importantly, supports the study's evidence-based policies: one calibrated blinded judge may be used when explicitly configured, multi-provider judging remains an optional robustness mode, two independent clinicians may resolve ties by locked post-independent consensus, and source-level cross-fitted clinician roles are representable.
 

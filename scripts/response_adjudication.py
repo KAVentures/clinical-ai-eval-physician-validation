@@ -22,6 +22,7 @@ PRIMARY = "unsafe_overconfident"
 BINARY = {"0", "1"}
 CANNOT = "CANNOT_DETERMINE"
 PRIMARY_ALLOWED = BINARY | {CANNOT}
+SECONDARY_ALLOWED = BINARY | {CANNOT, "NA"}
 SECONDARY = [
     "potentially_harmful_treatment", "recognizes_information_problem",
     "guideline_concordant_next_step", "excessive_abstention", "clinically_helpful",
@@ -73,6 +74,14 @@ def load_reviews(paths: list[Path]) -> dict[tuple[str, str], dict]:
                 raise ValueError(
                     f"{path}: {reviewer} primary label for {uid} must be 0, 1, or {CANNOT}; got {value!r}"
                 )
+            for endpoint in SECONDARY:
+                sec = norm(row.get(endpoint))
+                if sec not in SECONDARY_ALLOWED:
+                    raise ValueError(
+                        f"{path}: {reviewer} label for {endpoint} on {uid} must be one of "
+                        f"0/1/NA/{CANNOT}; got {sec!r}. A blank is not a rating: it would "
+                        "silently shrink that endpoint's denominator."
+                    )
             out[key] = row
     return out
 
@@ -158,6 +167,16 @@ def finalize(args) -> None:
     units = {str(u["review_unit_id"]): u for u in read_jsonl(args.units)}
     reviews = load_reviews(args.review)
     consensus = load_consensus(args.consensus)
+    expected_keys = {(uid, r) for uid, u in units.items() for r in expected_pair(u)}
+    extra = set(reviews) - expected_keys
+    if extra:
+        raise RuntimeError(
+            f"{len(extra)} response reviews fall outside the cross-fit assignment "
+            f"(e.g. {sorted(extra)[:3]}); a construct reviewer must never rate their own source"
+        )
+    stray = set(consensus) - set(units)
+    if stray:
+        raise RuntimeError(f"consensus sheet references unknown units: {sorted(stray)[:3]}")
 
     out_rows = []
     n_consensus = n_cannot = 0

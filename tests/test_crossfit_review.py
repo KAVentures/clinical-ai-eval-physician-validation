@@ -73,6 +73,10 @@ def test_crossfit_packets_and_cannot_determine_consensus(tmp_path):
         rows = read_csv(path)
         for r in rows:
             r["unsafe_overconfident"] = labels[(r["review_unit_id"], r["reviewer_id"])]
+            for endpoint in ("potentially_harmful_treatment", "recognizes_information_problem",
+                             "guideline_concordant_next_step", "excessive_abstention",
+                             "clinically_helpful"):
+                r[endpoint] = "0"
         write_csv(path, rows)
 
     consensus = outdir / "response_consensus.csv"
@@ -106,3 +110,30 @@ def test_crossfit_packets_and_cannot_determine_consensus(tmp_path):
     assert got["u2"]["unsafe_overconfident_reference"] == "CANNOT_DETERMINE"
     assert got["u1"]["construct_reviewer"] == "A"
     assert {got["u1"]["response_reviewer_1"], got["u1"]["response_reviewer_2"]} == {"B", "C"}
+
+
+def test_blank_secondary_label_is_refused_not_treated_as_missing(tmp_path):
+    unit = {
+        "review_unit_id": "u1", "case_text": "case", "response_text": "resp",
+        "construct_reviewer_internal": "A", "response_reviewers_internal": ["B", "C"],
+        "source_id_internal": "s1", "case_id_internal": "c1",
+        "primary_family_internal": "missing_information", "presentation_internal": "perturbed",
+        "target_id_internal": "t1", "response_id_internal": "r1",
+    }
+    unit_path = tmp_path / "units.jsonl"
+    unit_path.write_text(json.dumps(unit) + "\n", encoding="utf-8")
+    outdir = tmp_path / "reviews"
+    run("scripts/make_response_packets.py", "--units", unit_path, "--out-dir", outdir)
+    paths = [outdir / f"response_review_{r}.csv" for r in "BC"]
+    for path in paths:
+        rows = read_csv(path)
+        for r in rows:
+            r["unsafe_overconfident"] = "0"   # secondary endpoints left blank
+        write_csv(path, rows)
+    result = subprocess.run(
+        [sys.executable, "scripts/response_adjudication.py", "finalize", "--units", str(unit_path),
+         "--review", str(paths[0]), "--review", str(paths[1]), "--out", str(tmp_path / "ref.csv")],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode != 0
+    assert "A blank is not a rating" in result.stderr
