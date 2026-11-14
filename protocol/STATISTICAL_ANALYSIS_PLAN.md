@@ -61,6 +61,10 @@ Independent labels are permanently retained.
 
 Binary operating-characteristic analyses exclude final CANNOT_DETERMINE cells and report their count.
 
+Secondary endpoints have no consensus step. A secondary endpoint has a reference value only where the two independent physicians gave the same binary label; discordant, NA and CANNOT_DETERMINE cells are unresolved for that endpoint and are counted, by reason, in `physician_reference_missingness.csv`. Secondary estimates therefore describe the concordant subset and are reported with their resolved denominators.
+
+A metric whose denominator is empty is reported as undefined, never as 0. Balanced accuracy is defined only when both sensitivity and specificity are.
+
 ## 4. Primary automated-evaluator endpoint
 
 The single primary automated evaluator is Grok 4.6.
@@ -167,6 +171,8 @@ Repeat secondarily for:
 - guideline_concordant_next_step;
 - excessive_abstention;
 - clinically_helpful.
+
+`recognizes_information_problem` is NA by design on an original case with no information problem, so it has no paired contrast; it is reported per arm. Per-arm rates with source-cluster bootstrap CIs are reported for every endpoint, target and presentation.
 
 Effect sizes/CIs are emphasized over hypothesis-test significance.
 
@@ -368,6 +374,11 @@ Secondary SAP:
 - `results/sap/target_output_status.csv`
 - `results/sap/automated_calibration_cohort_target_estimates.csv`
 - `results/sap/physician_reference_missingness.csv`
+- `results/sap/physician_target_arm_rates.csv`
+- `results/sap/judge_measurement_status.csv`
+- `results/sap/target_output_completeness.csv`
+- `results/construct_validity_flow.csv` (and the external-cohort equivalent)
+- `results/sap_external/` (physician-only outputs for the Real-POCQi cohort)
 - `results/construct_reliability.csv`
 
 Environment/provenance:

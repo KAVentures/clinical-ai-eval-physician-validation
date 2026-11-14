@@ -9,6 +9,7 @@ from pathlib import Path
 
 import yaml
 
+from study_runtime.lock import require_lock
 from study_runtime.providers import KEY_NAMES, SIMULATED_ENV, load_keys, simulated_transport_enabled
 
 
@@ -61,6 +62,7 @@ def main() -> None:
                    default=Path("data/response_validation_case_selection.csv"))
     p.add_argument("--responses-manifest", type=Path, default=Path("data/target_response_manifest.csv"))
     p.add_argument("--calibration-manifest", type=Path, default=Path("data/physician_calibration_selection.csv"))
+    p.add_argument("--lock", type=Path, default=Path("data/study_lock.json"))
     p.add_argument("--rehearsal", action="store_true",
                    help="Accept synthetic sources and simulated provider calls (offline rehearsal only)")
     args = p.parse_args()
@@ -127,6 +129,9 @@ def main() -> None:
     if args.phase == "targets":
         print("PASS target preflight")
         return
+
+    # From here on the study is locked: nothing locked may have changed.
+    require_lock(args.lock, allow_rehearsal=args.rehearsal)
 
     response_rows = read_csv(args.responses_manifest)
     if len(response_rows) != 480:

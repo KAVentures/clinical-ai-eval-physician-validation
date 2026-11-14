@@ -230,7 +230,7 @@ def quick() -> None:
 
 
 def construct_and_finalize(vault: Path, pub: Path, drafts: Path, finalizer: str, queue: Path,
-                           manifest: Path, tag: str, fallback_expected: bool) -> None:
+                           manifest: Path, tag: str, fallback_expected: bool) -> list[Path]:
     review_dir = vault / "review" / f"construct_{tag}"
     run("scripts/make_construct_packets.py", "--drafts", drafts, "--out-dir", review_dir, "--mode", "first")
     first = [review_dir / f"construct_review_{r}.csv" for r in "ABC"]
@@ -241,7 +241,7 @@ def construct_and_finalize(vault: Path, pub: Path, drafts: Path, finalizer: str,
              "--vault", vault, "--public-out", manifest]
     if not fallback_expected:      # a reservoir deep enough to fill the pack in one wave
         run(*final)
-        return
+        return first
     run(*final, expect_fail="NEEDS_FALLBACK_REVIEW")
     fb_dir = review_dir / "fallback1"
     prior = [x for path in first for x in ("--prior-review", path)]
@@ -255,7 +255,9 @@ def construct_and_finalize(vault: Path, pub: Path, drafts: Path, finalizer: str,
           f"{tag}: fallback wave ({len(fb_rows)} drafts) shows only unreviewed alternates for unresolved sources")
     for path in fallback:
         fill_construct(path, accept_percent=92)
-    run(*final, *[x for path in fallback if read_csv(path) for x in ("--review", path)])
+    used = [path for path in fallback if read_csv(path)]
+    run(*final, *[x for path in used for x in ("--review", path)])
+    return [*first, *used]
 
 
 def review_responses(vault: Path, tag: str) -> Path:
@@ -331,8 +333,8 @@ def full(work: Path) -> None:
 
     step("Phase 4  cross-fitted construct review, forced fallback wave, 150-case casepack via the pinned framework")
     casepack_manifest = pub / "primary_casepack_manifest.csv"
-    construct_and_finalize(vault, pub, drafts, "finalize_casepack.py", hbp_queue, casepack_manifest, "primary",
-                           fallback_expected=True)
+    primary_reviews = construct_and_finalize(vault, pub, drafts, "finalize_casepack.py", hbp_queue,
+                                             casepack_manifest, "primary", fallback_expected=True)
     pack = read_csv(casepack_manifest)
     strata = {}
     for r in pack:
@@ -372,8 +374,17 @@ def full(work: Path) -> None:
 
     step("Phase 7  four targets x 60 sources x 2 presentations, interrupted then resumed")
     target_manifest = pub / "target_response_manifest.csv"
+    study_lock = pub / "study_lock.json"
+    locked = ["--lock", study_lock, "--rehearsal"]
     targets = ["scripts/run_targets.py", "--casepack", vault / "casepack" / "response_validation_60.private.jsonl",
-               "--vault", vault, "--public-manifest", target_manifest]
+               "--vault", vault, "--public-manifest", target_manifest, *locked]
+    run(*targets[:-3], "--models", models, expect_fail="study lock not found")
+    run(*targets[:-1], "--models", models, expect_fail="rehearsal lock, not a study lock")
+    original_panel = models.read_text(encoding="utf-8")
+    models.write_text(original_panel + "# edited after lock\n", encoding="utf-8")
+    run(*targets, "--models", models, expect_fail="changed since lock: configs/model_panel.yaml")
+    models.write_text(original_panel, encoding="utf-8")
+    print("     ok: no lock, a rehearsal lock in a real run, and a config edited after lock each stop the run")
     run(*targets, "--models", unfrozen, expect_fail="not frozen")
     run(*targets, "--models", models, "--limit", "4")
     responses_path = vault / "responses" / "target_responses.private.jsonl"
@@ -400,12 +411,12 @@ def full(work: Path) -> None:
         "--vault", vault, "--public-manifest", calibration)
 
     step("Phase 9  the one blinded judge on the same 480 cells, interrupted then resumed")
-    pre = ["--models", models, "--rehearsal", *manifests, "--responses-manifest", target_manifest,
+    pre = ["--models", models, "--rehearsal", "--lock", study_lock, *manifests, "--responses-manifest", target_manifest,
            "--calibration-manifest", calibration]
     run("scripts/preflight.py", "--phase", "judges", *pre)
     units_path = vault / "review" / "physician_calibration_units.private.jsonl"
     judges = ["scripts/run_judges.py", "--units", units_path, "--models", models, "--vault", vault,
-              "--public-manifest", pub / "judge_manifest.csv"]
+              "--public-manifest", pub / "judge_manifest.csv", *locked]
     run(*judges)
     scores_path = vault / "judges" / "judge_scores.private.jsonl"
     kept = read_jsonl(scores_path)
@@ -445,10 +456,40 @@ def full(work: Path) -> None:
     expected = ["human_human_agreement.csv", "physician_target_robustness.csv",
                 "physician_target_pairwise_contrasts.csv", "gee_models.csv", "judge_target_provider_audit.csv",
                 "automated_screen_operating_point.csv", "physician_subgroup_descriptives.csv",
-                "target_output_status.csv", "physician_reference_missingness.csv"]
+                "target_output_status.csv", "physician_reference_missingness.csv",
+                "physician_target_arm_rates.csv", "judge_measurement_status.csv",
+                "target_output_completeness.csv", "same_provider_judge_summary.csv",
+                "automated_calibration_cohort_target_estimates.csv"]
     missing = [f for f in expected if not (results / "sap" / f).exists() or (results / "sap" / f).stat().st_size < 10]
     check(not missing and not (results / "sap" / "gee_errors.json").exists(),
           f"all {len(expected)} SAP outputs written and both GEE models converged")
+    groups = {r["analysis_group"] for r in jv}
+    rob = read_csv(results / "sap" / "physician_target_robustness.csv")
+    check({"primary_family=missing_information", "primary_family=conflicting_evidence"} <= groups
+          and {r["primary_family"] for r in rob} == {"all", "missing_information", "conflicting_evidence"},
+          "family-specific judge accuracy and family-specific target effects are reported (SAP 12)")
+    arm = [r for r in read_csv(results / "sap" / "physician_target_arm_rates.csv")
+           if r["endpoint"] == "recognizes_information_problem" and r["presentation"] == "perturbed"]
+    check(len(arm) == 4 and all(int(r["binary_resolved"]) > 0 for r in arm),
+          "endpoints with no paired contrast are still reported per arm")
+    miss = {r["endpoint"]: r for r in read_csv(results / "sap" / "physician_reference_missingness.csv")}
+    check(len(miss) == 6 and int(miss["recognizes_information_problem"]["independent_either_na"]) > 0
+          and all(int(r["binary_resolved"]) + int(r["cannot_determine"]) + int(r["unresolved_other"]) == 480
+                  for r in miss.values()),
+          "every endpoint's 480 cells are accounted for; the label NA survives the CSV round trip")
+    check(all(r["data_provenance"] == "SIMULATED_REHEARSAL_NOT_RESULTS" for r in jv)
+          and (results / "sap" / "SIMULATED_REHEARSAL_NOT_RESULTS.txt").exists(),
+          "analysis outputs built on simulated calls label themselves as such")
+    flow_args = ["--candidate-queue", hbp_queue, "--drafts-manifest", pub / "perturbation_drafts_manifest.csv",
+                 *[x for path in primary_reviews for x in ("--review", path)],
+                 "--casepack-manifest", casepack_manifest,
+                 "--framework-exclusions", pub / "primary_casepack_manifest_framework_exclusions.csv"]
+    run("analysis/construct_validity_flow.py", *flow_args, "--out", results / "construct_validity_flow.csv")
+    flow = {r["stage"]: int(r["sources"]) for r in read_csv(results / "construct_validity_flow.csv")}
+    check(flow["queued"] == 236 and flow["selected_in_casepack"] == 150
+          and flow["eligible"] == flow["selected_in_casepack"] + flow["eligible_not_selected_quota_already_full"],
+          f"construct-validity flow accounts for all 236 sources ({flow['physician_valid']} physician-valid, "
+          f"{flow['reviewed_none_physician_valid']} rejected, {flow['no_applicable_draft']} with no applicable draft)")
 
     step("Phase 12  post-response construct reliability audit")
     audit_dir = vault / "review" / "construct_reliability"
@@ -478,15 +519,21 @@ def full(work: Path) -> None:
         "--public-manifest", pub / "real_pocqi_perturbation_drafts_manifest.csv")
     check(read_jsonl(drafts) == d_rows, "external drafting left the primary drafts untouched")
     rp_manifest = pub / "real_pocqi_casepack_manifest.csv"
-    construct_and_finalize(vault, pub, vault / "drafts" / rp_drafts_name, "finalize_real_pocqi_casepack.py",
+    _ = construct_and_finalize(vault, pub, vault / "drafts" / rp_drafts_name, "finalize_real_pocqi_casepack.py",
                            rp_queue, rp_manifest, "external", fallback_expected=False)
     ext_pack = vault / "casepack" / "external_real_pocqi_50.private.jsonl"
     run("scripts/run_targets.py", "--casepack", ext_pack, "--models", models, "--vault", ext,
-        "--public-manifest", pub / "real_pocqi_target_response_manifest.csv", "--expected-cases", "50")
+        "--public-manifest", pub / "real_pocqi_target_response_manifest.csv", "--expected-cases", "50", *locked)
     run("scripts/select_physician_calibration.py", "--responses", ext / "responses" / "target_responses.private.jsonl",
         "--casepack", ext_pack, "--vault", ext, "--public-manifest", pub / "real_pocqi_physician_selection.csv",
         "--all-cases")
     ext_reference = review_responses(ext, "external")
+    run("analysis/full_sap_analysis.py", "--physician-reference", ext_reference,
+        "--target-responses", ext / "responses" / "target_responses.private.jsonl", "--models", models,
+        "--out-dir", results / "sap_external", "--bootstrap", "200", "--seed", "20260903")
+    check((results / "sap_external" / "physician_target_robustness.csv").stat().st_size > 10
+          and not (results / "sap_external" / "judge_target_provider_audit.csv").exists(),
+          "external cohort analysed physician-only, with no automated-judge output")
     check(len(read_csv(ext_reference)) == 400, "50 x 2 x 4 = 400 external cells, all physician-anchored")
     check(len(read_jsonl(responses_path)) == 480, "external run did not touch the 480 primary responses")
 

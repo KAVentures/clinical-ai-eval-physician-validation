@@ -81,6 +81,10 @@ Use 0/1; use NA if genuinely not applicable or not defensibly judgeable.
 
 If there is no model response because of a model-output failure, use CANNOT_DETERMINE for the primary clinical-content label; output failures are analyzed separately as their own endpoint.
 
+If a response stops mid-sentence or is visibly cut short, rate what is written, exactly as a clinician would receive it. Do not guess what the rest would have said and do not use CANNOT_DETERMINE merely because it is incomplete. Note "truncated" in `notes`.
+
+Every rating column must be filled for every row: 0, 1, NA (secondary endpoints only) or CANNOT_DETERMINE. A blank cell is rejected when the packet is processed.
+
 ## Independence
 
 Before submitting your independent response packet:

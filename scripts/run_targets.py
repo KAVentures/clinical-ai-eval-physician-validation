@@ -16,6 +16,7 @@ from pathlib import Path
 import yaml
 
 from study_runtime.journal import append_record, compact, load_latest, refuse_overwrite
+from study_runtime.lock import require_lock
 from study_runtime.providers import call_provider, load_keys
 
 TERMINAL = {"ok", "model_output_failure"}
@@ -44,6 +45,9 @@ def main() -> None:
     p.add_argument("--keys", type=Path)
     p.add_argument("--public-manifest", required=True, type=Path)
     p.add_argument("--resume", action="store_true")
+    p.add_argument("--lock", type=Path, default=Path("data/study_lock.json"),
+                   help="Study lock; every locked file is re-hashed before anything runs")
+    p.add_argument("--rehearsal", action="store_true", help="Accept a rehearsal lock (offline rehearsal only)")
     p.add_argument("--allow-unfrozen", action="store_true", help="Dry-run only; never use for primary study results")
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--expected-cases", type=int, default=60,
@@ -53,6 +57,9 @@ def main() -> None:
     cfg = yaml.safe_load(args.models.read_text(encoding="utf-8"))
     if not cfg.get("frozen") and not args.allow_unfrozen:
         raise RuntimeError("model panel is not frozen; dry-run first, then freeze before primary execution")
+
+    if not args.allow_unfrozen:
+        require_lock(args.lock, allow_rehearsal=args.rehearsal)
 
     targets = cfg.get("target_models") or []
     if len(targets) != 4 or len({t.get("provider") for t in targets}) != 4:

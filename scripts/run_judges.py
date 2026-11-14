@@ -21,6 +21,7 @@ import yaml
 
 from caeval.score import parse_judge_json
 from study_runtime.journal import append_record, compact, load_latest, refuse_overwrite
+from study_runtime.lock import require_lock
 from study_runtime.providers import call_provider, load_keys
 
 
@@ -59,12 +60,16 @@ def main() -> None:
     p.add_argument("--keys", type=Path)
     p.add_argument("--public-manifest", required=True, type=Path)
     p.add_argument("--resume", action="store_true")
+    p.add_argument("--lock", type=Path, default=Path("data/study_lock.json"),
+                   help="Study lock; every locked file is re-hashed before anything runs")
+    p.add_argument("--rehearsal", action="store_true", help="Accept a rehearsal lock (offline rehearsal only)")
     args = p.parse_args()
 
     cfg = yaml.safe_load(args.models.read_text(encoding="utf-8"))
     if not cfg.get("frozen"):
         raise RuntimeError("model/judge configuration must be frozen before judge execution")
 
+    require_lock(args.lock, allow_rehearsal=args.rehearsal)
     judges = list(cfg.get("primary_judges") or [])
     if len(judges) != 1:
         raise RuntimeError(f"confirmatory study requires exactly one primary automated judge; got {len(judges)}")

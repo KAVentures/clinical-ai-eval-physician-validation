@@ -212,6 +212,7 @@ def finalize(args) -> None:
             "presentation": u["presentation_internal"],
             "target_id": u["target_id_internal"],
             "target_provider": u.get("target_provider_internal", ""),
+            "target_status": u.get("target_status_internal", ""),
             "response_id": u["response_id_internal"],
             "source_type": u.get("source_type_internal", ""),
             "source_difficulty": u.get("source_difficulty_internal", ""),

@@ -174,6 +174,13 @@ A selected source may have one or two valid families.
 
 At least 30 sources per family must be available.
 
+Physician acceptance is necessary but not sufficient for eligibility. Each accepted
+variant must also pass the pinned Clinical-AI-Eval manifest import, structural
+validity audit and human-confirmation contract. A variant the framework declines is
+ineligible: it is recorded with its reason in a public exclusions manifest and the
+next source in the frozen priority order takes its place. This rule is applied
+mechanically, before any target-model call, and never depends on model behaviour.
+
 No family assignment changes after the casepack is frozen.
 
 ## 12. Deterministic 60-source response-validation cohort
@@ -392,7 +399,13 @@ Before the first target call:
 - analysis code;
 - exact Python/package environment.
 
-Every provider call records configured/resolved model, endpoint, reasoning setting, token cap, request hash, attempts, status, timestamps and usage.
+The lock also hashes every script, runtime module and analysis file, and records
+the engine commit actually installed; a real lock is refused unless that equals the
+pinned commit. After lock, the target runner, the judge runner and the judge/analysis
+preflight re-hash every locked file and refuse to run if anything changed. Any
+intended change is first recorded in `protocol/DEVIATIONS.md` and then re-locked.
+
+Every provider call records configured/resolved model, endpoint, reasoning setting, token cap, request hash, attempts, status, the provider's finish reason, timestamps and usage. A response with text that did not finish normally (output cap or refusal) remains the model's output, is rated as written, and is counted separately.
 
 ## 25. External Real-POCQi replication
 

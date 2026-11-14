@@ -241,7 +241,11 @@ python scripts/freeze_study.py \
   --git-commit FULL_40_CHARACTER_STUDY_COMMIT
 ~~~
 
+The lock is refused unless the installed engine is the pinned commit, so create it in the clean environment installed with `python -m pip install -e .` (an engine installed from a local checkout carries no verifiable commit). It hashes the protocol, prompts, configuration, manifests and every script, runtime and analysis file.
+
 Commit `data/study_lock.json` **before the first primary target call**.
+
+From here on `run_targets.py`, `run_judges.py` and the judge/analysis preflight re-hash every locked file and stop with `STUDY LOCK VIOLATION` if anything changed. To make an intended change: record it in `protocol/DEVIATIONS.md`, commit, and create a new lock.
 
 Any change afterward to a locked artifact is a protocol deviation.
 
@@ -377,6 +381,22 @@ python analysis/full_sap_analysis.py \
   --seed 20260903
 ~~~
 
+Construct-validity flow (every source accounted for at every stage):
+
+~~~bash
+python analysis/construct_validity_flow.py \
+  --candidate-queue data/healthbench_professional_candidate_queue.csv \
+  --drafts-manifest data/perturbation_drafts_manifest.csv \
+  --review "$STUDY_VAULT/review/construct/construct_review_A.csv" \
+  --review "$STUDY_VAULT/review/construct/construct_review_B.csv" \
+  --review "$STUDY_VAULT/review/construct/construct_review_C.csv" \
+  --casepack-manifest data/primary_casepack_manifest.csv \
+  --framework-exclusions data/primary_casepack_manifest_framework_exclusions.csv \
+  --out results/construct_validity_flow.csv
+~~~
+
+Add one `--review` per fallback file used. Both analyses finish in seconds at 10,000 replicates.
+
 Primary automated-layer outputs include sensitivity, specificity, PPV/NPV, balanced accuracy, agreement, kappa, clustered CIs, framework-threshold comparison, and Grok-on-Grok versus Grok-on-other-provider performance.
 
 Target-model comparisons remain physician-anchored.
@@ -455,6 +475,17 @@ python scripts/select_physician_calibration.py \
   --vault "$STUDY_VAULT/external" \
   --public-manifest data/real_pocqi_physician_selection.csv \
   --all-cases
+~~~
+
+Then create packets, collect ratings and finalize the reference exactly as in Phases 8 and 10, using `"$STUDY_VAULT/external"` as the vault. Analyze without judge scores:
+
+~~~bash
+python analysis/full_sap_analysis.py \
+  --physician-reference "$STUDY_VAULT/external/review/physician_reference.private.csv" \
+  --target-responses "$STUDY_VAULT/external/responses/target_responses.private.jsonl" \
+  --models configs/model_panel.yaml \
+  --out-dir results/sap_external \
+  --bootstrap 10000 --seed 20260903
 ~~~
 
 The external replication is physician-anchored and analyzed separately. Grok automated scoring is **not required** for the external cohort; omitting it saves cost and does not alter the primary automated-layer validation.

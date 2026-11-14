@@ -22,6 +22,8 @@ from statsmodels.genmod.families import Binomial
 from statsmodels.genmod.generalized_estimating_equations import GEE
 from statsmodels.stats.multitest import multipletests
 
+from study_runtime.stats import cluster_bootstrap_mean, cohen_kappa
+
 BINARY = {"0", "1"}
 ENDPOINTS = [
     "unsafe_overconfident",
@@ -36,15 +38,6 @@ ENDPOINTS = [
 def read_jsonl(path: Path) -> list[dict]:
     with path.open(encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
-
-
-def kappa(x: np.ndarray, y: np.ndarray) -> float:
-    if len(x) == 0:
-        return float("nan")
-    agree = float((x == y).mean())
-    px, py = float(x.mean()), float(y.mean())
-    pe = px * py + (1 - px) * (1 - py)
-    return float((agree - pe) / (1 - pe)) if pe < 1 else float("nan")
 
 
 def agreement_row(g: pd.DataFrame, dimension: str, value: str) -> dict:
@@ -62,18 +55,8 @@ def agreement_row(g: pd.DataFrame, dimension: str, value: str) -> dict:
         "n": len(z),
         "percent_agreement": float((a == b).mean()),
         "discordance_rate": float((a != b).mean()),
-        "cohen_kappa": kappa(a, b),
+        "cohen_kappa": cohen_kappa(a, b),
     }
-
-
-def bootstrap_mean(values: np.ndarray, n_boot: int, seed: int) -> tuple[float, float]:
-    if len(values) == 0:
-        return float("nan"), float("nan")
-    rng = np.random.default_rng(seed)
-    draws = np.empty(n_boot)
-    for i in range(n_boot):
-        draws[i] = rng.choice(values, size=len(values), replace=True).mean()
-    return tuple(float(x) for x in np.percentile(draws, [2.5, 97.5]))
 
 
 def mcnemar_exact(original: np.ndarray, perturbed: np.ndarray) -> tuple[int, int, float]:
@@ -112,64 +95,101 @@ def human_agreement(ref: pd.DataFrame, outdir: Path) -> None:
     pd.DataFrame(rows).to_csv(outdir / "human_human_agreement.csv", index=False)
 
 
+def _paired(z: pd.DataFrame, col: str) -> pd.DataFrame:
+    pivot = z.pivot_table(
+        index=["source_id", "case_id", "primary_family"],
+        columns="presentation", values=col, aggfunc="first",
+    ).reset_index()
+    if not {"original", "perturbed"}.issubset(pivot.columns):
+        return pivot.iloc[0:0]
+    return pivot.dropna(subset=["original", "perturbed"])
+
+
 def target_robustness(ref: pd.DataFrame, outdir: Path, n_boot: int, seed: int) -> None:
+    """Paired original-vs-perturbed change per target and endpoint, overall and
+    within each perturbation family (SAP sections 9 and 12)."""
     rows = []
     for ei, endpoint in enumerate(ENDPOINTS):
         col = f"{endpoint}_reference"
         if col not in ref:
             continue
-        endpoint_rows = []
-        for ti, (target, g) in enumerate(ref.groupby("target_id", sort=True)):
-            z = g[g[col].isin(BINARY)].copy()
-            pivot = z.pivot_table(
-                index=["source_id", "case_id", "primary_family"],
-                columns="presentation", values=col, aggfunc="first",
-            ).reset_index()
-            if not {"original", "perturbed"}.issubset(pivot.columns):
-                continue
-            pivot = pivot.dropna(subset=["original", "perturbed"])
-            if pivot.empty:
-                continue
-            o = pivot["original"].astype(int).to_numpy()
-            p = pivot["perturbed"].astype(int).to_numpy()
-            delta = p - o
-            lo, hi = bootstrap_mean(delta.astype(float), n_boot, seed + ei * 10000 + ti * 101)
-            b, c, pval = mcnemar_exact(o, p)
-            endpoint_rows.append({
-                "endpoint": endpoint,
-                "target_id": target,
-                "n_paired_cases": len(pivot),
-                "original_rate": float(o.mean()),
-                "perturbed_rate": float(p.mean()),
-                "paired_risk_difference": float(delta.mean()),
-                "ci_low": lo, "ci_high": hi,
-                "transition_0_to_1": b,
-                "transition_1_to_0": c,
-                "mcnemar_exact_p": pval,
-            })
-        if endpoint_rows:
-            pvals = [r["mcnemar_exact_p"] for r in endpoint_rows]
-            adjusted = multipletests(pvals, method="holm")[1]
-            for r, padj in zip(endpoint_rows, adjusted):
-                r["mcnemar_holm_p"] = float(padj)
-            rows.extend(endpoint_rows)
+        for scope in ["all", *sorted(ref["primary_family"].unique())]:
+            scoped = ref if scope == "all" else ref[ref["primary_family"] == scope]
+            endpoint_rows = []
+            for ti, (target, g) in enumerate(scoped.groupby("target_id", sort=True)):
+                pivot = _paired(g[g[col].isin(BINARY)], col)
+                if pivot.empty:
+                    continue
+                o = pivot["original"].astype(int).to_numpy()
+                p = pivot["perturbed"].astype(int).to_numpy()
+                delta = p - o
+                lo, hi = cluster_bootstrap_mean(
+                    pivot["source_id"], delta, n_boot,
+                    seed + ei * 10000 + ti * 101 + (0 if scope == "all" else 7 + len(scope)),
+                )
+                b, c, pval = mcnemar_exact(o, p)
+                endpoint_rows.append({
+                    "endpoint": endpoint,
+                    "primary_family": scope,
+                    "target_id": target,
+                    "n_paired_cases": len(pivot),
+                    "n_cases_without_a_resolved_pair": int(g["source_id"].nunique() - len(pivot)),
+                    "original_rate": float(o.mean()),
+                    "perturbed_rate": float(p.mean()),
+                    "paired_risk_difference": float(delta.mean()),
+                    "ci_low": lo, "ci_high": hi,
+                    "transition_0_to_1": b,
+                    "transition_1_to_0": c,
+                    "mcnemar_exact_p": pval,
+                })
+            if endpoint_rows:
+                pvals = [r["mcnemar_exact_p"] for r in endpoint_rows]
+                adjusted = multipletests(pvals, method="holm")[1]
+                for r, padj in zip(endpoint_rows, adjusted):
+                    # Holm across the four targets, within endpoint and family scope.
+                    r["mcnemar_holm_p"] = float(padj)
+                rows.extend(endpoint_rows)
     pd.DataFrame(rows).to_csv(outdir / "physician_target_robustness.csv", index=False)
+
+
+def target_arm_rates(ref: pd.DataFrame, outdir: Path, n_boot: int, seed: int) -> None:
+    """Unpaired rate of every endpoint per target and presentation.
+
+    Needed because some endpoints have no paired contrast by design:
+    `recognizes_information_problem` is NA on an original case that has no
+    information problem, so it can only be reported on the perturbed arm."""
+    rows = []
+    for ei, endpoint in enumerate(ENDPOINTS):
+        col = f"{endpoint}_reference"
+        if col not in ref:
+            continue
+        keys = ["target_id", "presentation"]
+        for gi, (key, g) in enumerate(ref.groupby(keys, sort=True)):
+            z = g[g[col].isin(BINARY)]
+            y = z[col].astype(int).to_numpy()
+            lo, hi = cluster_bootstrap_mean(z["source_id"], y, n_boot, seed + 90000 + ei * 1000 + gi)
+            rows.append({
+                "endpoint": endpoint, "target_id": key[0], "presentation": key[1],
+                "cells": len(g), "binary_resolved": len(z), "unresolved": len(g) - len(z),
+                "rate": float(y.mean()) if len(y) else np.nan, "ci_low": lo, "ci_high": hi,
+            })
+    pd.DataFrame(rows).to_csv(outdir / "physician_target_arm_rates.csv", index=False)
 
 
 def target_pairwise(ref: pd.DataFrame, outdir: Path, n_boot: int, seed: int) -> None:
     z = ref[ref["unsafe_overconfident_reference"].isin(BINARY)].copy()
     z["y"] = z["unsafe_overconfident_reference"].astype(int)
     pivot = z.pivot_table(
-        index=["case_id", "target_id"], columns="presentation", values="y", aggfunc="first"
+        index=["source_id", "target_id"], columns="presentation", values="y", aggfunc="first"
     ).reset_index()
     pivot = pivot.dropna(subset=["original", "perturbed"])
     pivot["delta"] = pivot["perturbed"] - pivot["original"]
-    wide = pivot.pivot(index="case_id", columns="target_id", values="delta")
+    wide = pivot.pivot(index="source_id", columns="target_id", values="delta")
     rows = []
     for i, (a, b) in enumerate(combinations(sorted(wide.columns), 2)):
         pair = wide[[a, b]].dropna()
         diff = (pair[a] - pair[b]).to_numpy(float)
-        lo, hi = bootstrap_mean(diff, n_boot, seed + i * 1009)
+        lo, hi = cluster_bootstrap_mean(pair.index.to_numpy(), diff, n_boot, seed + i * 1009)
         if len(diff) == 0 or np.all(diff == 0):
             pval = 1.0
         else:
@@ -240,6 +260,11 @@ def judge_frame(path: Path) -> pd.DataFrame:
         rows,
         columns=["response_id", "judge_id", "judge_provider", "judge_model", "judge_mode", "label"],
     )
+
+
+def judge_frame_empty() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=["response_id", "judge_id", "judge_provider", "judge_model", "judge_mode", "label"])
 
 
 def judge_provider_audit(ref: pd.DataFrame, jdf: pd.DataFrame, outdir: Path) -> None:
@@ -323,6 +348,17 @@ def target_failures_and_automated(responses_path: Path, jdf: pd.DataFrame, cfg: 
     fail["rate"] = fail["n"] / fail["target_total"]
     fail.to_csv(outdir / "target_output_status.csv", index=False)
 
+    # A response with text that did not finish normally (output cap, refusal) is
+    # still the model's output and stays in every analysis; it is counted here.
+    meta = responses["provider_meta"].apply(lambda m: m or {})
+    responses["finish_reason"] = meta.apply(lambda m: str(m.get("finish_reason", "")))
+    responses["output_complete"] = meta.apply(lambda m: bool(m.get("output_complete", True)))
+    (responses[responses["status"] == "ok"]
+     .groupby(["target_id", "output_complete", "finish_reason"], dropna=False).size()
+     .reset_index(name="n").to_csv(outdir / "target_output_completeness.csv", index=False))
+    if jdf.empty:
+        return
+
     # Automated model estimates are deliberately limited to the 60-source
     # physician-reference cohort; the other 90 construct-valid sources are not sent
     # to target APIs in the primary study.
@@ -347,20 +383,54 @@ def target_failures_and_automated(responses_path: Path, jdf: pd.DataFrame, cfg: 
     pd.DataFrame(rows).to_csv(outdir / "automated_calibration_cohort_target_estimates.csv", index=False)
 
 def reference_missingness(ref: pd.DataFrame, outdir: Path) -> None:
-    rows = [{
-        "endpoint": "unsafe_overconfident",
-        "total_cells": len(ref),
-        "binary_resolved": int(ref["unsafe_overconfident_reference"].isin(BINARY).sum()),
-        "cannot_determine": int((ref["unsafe_overconfident_reference"] == "CANNOT_DETERMINE").sum()),
-        "consensus_used": int((ref.get("primary_consensus_used", pd.Series(dtype=str)) == "true").sum()),
-    }]
+    """Exact denominators for every endpoint. The primary endpoint is resolved by
+    consensus; a secondary endpoint has a reference only where the two independent
+    physicians gave the same binary label, so its unresolved cells are split out."""
+    rows = []
+    for endpoint in ENDPOINTS:
+        col = f"{endpoint}_reference"
+        if col not in ref:
+            continue
+        a, b = ref.get(f"physician_1_{endpoint}"), ref.get(f"physician_2_{endpoint}")
+        row = {
+            "endpoint": endpoint,
+            "total_cells": len(ref),
+            "binary_resolved": int(ref[col].isin(BINARY).sum()),
+            "cannot_determine": int((ref[col] == "CANNOT_DETERMINE").sum()),
+            "unresolved_other": int((~ref[col].isin(BINARY | {"CANNOT_DETERMINE"})).sum()),
+            "consensus_used": int((ref.get("primary_consensus_used", pd.Series(dtype=str)) == "true").sum())
+            if endpoint == "unsafe_overconfident" else "",
+        }
+        if a is not None and b is not None:
+            both = a.isin(BINARY) & b.isin(BINARY)
+            row["independent_both_binary"] = int(both.sum())
+            row["independent_discordant"] = int((both & (a != b)).sum())
+            row["independent_either_na"] = int(((a == "NA") | (b == "NA")).sum())
+            row["independent_either_cannot_determine"] = int(
+                ((a == "CANNOT_DETERMINE") | (b == "CANNOT_DETERMINE")).sum())
+        if "target_status" in ref:
+            row["cells_with_no_model_output"] = int((ref["target_status"] == "model_output_failure").sum())
+        rows.append(row)
     pd.DataFrame(rows).to_csv(outdir / "physician_reference_missingness.csv", index=False)
+
+
+def judge_status(path: Path, outdir: Path) -> bool:
+    """Every judge attempt by outcome (SAP section 6). Returns True if simulated."""
+    records = read_jsonl(path)
+    counts: dict[str, int] = {}
+    for r in records:
+        counts[str(r.get("status"))] = counts.get(str(r.get("status")), 0) + 1
+    pd.DataFrame(
+        [{"judge_status": k, "n": v, "share": v / len(records)} for k, v in sorted(counts.items())]
+    ).to_csv(outdir / "judge_measurement_status.csv", index=False)
+    return any((r.get("provider_meta") or {}).get("simulated") for r in records)
 
 
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--physician-reference", required=True, type=Path)
-    p.add_argument("--judge-scores", required=True, type=Path)
+    p.add_argument("--judge-scores", type=Path,
+                   help="Omit for the external cohort, which has no automated scoring")
     p.add_argument("--target-responses", required=True, type=Path)
     p.add_argument("--models", required=True, type=Path)
     p.add_argument("--out-dir", required=True, type=Path)
@@ -369,21 +439,33 @@ def main() -> None:
     args = p.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    ref = pd.read_csv(args.physician_reference, dtype=str).fillna("")
+    ref = pd.read_csv(args.physician_reference, dtype=str, keep_default_na=False)
     cfg = yaml.safe_load(args.models.read_text(encoding="utf-8"))
-    jdf = judge_frame(args.judge_scores)
-
+    simulated = any(
+        (r.get("provider_meta") or {}).get("simulated") for r in read_jsonl(args.target_responses))
     reference_missingness(ref, args.out_dir)
     human_agreement(ref, args.out_dir)
     target_robustness(ref, args.out_dir, args.bootstrap, args.seed)
+    target_arm_rates(ref, args.out_dir, args.bootstrap, args.seed)
     target_pairwise(ref, args.out_dir, args.bootstrap, args.seed + 50000)
     gee_models(ref, args.out_dir)
-    judge_provider_audit(ref, jdf, args.out_dir)
-    automated_screen_operating_point(ref, jdf, args.out_dir)
     subgroup_summary(ref, args.out_dir)
+    if args.judge_scores is not None:
+        jdf = judge_frame(args.judge_scores)
+        simulated = judge_status(args.judge_scores, args.out_dir) or simulated
+        judge_provider_audit(ref, jdf, args.out_dir)
+        automated_screen_operating_point(ref, jdf, args.out_dir)
+    else:
+        jdf = judge_frame_empty()
     target_failures_and_automated(args.target_responses, jdf, cfg, args.out_dir)
-
-    print(f"Wrote full SAP outputs to {args.out_dir}")
+    marker = args.out_dir / "SIMULATED_REHEARSAL_NOT_RESULTS.txt"
+    if simulated:
+        marker.write_text(
+            "These files come from simulated provider calls. They are not study results." + chr(10),
+            encoding="utf-8")
+    elif marker.exists():
+        marker.unlink()
+    print(f"Wrote full SAP outputs to {args.out_dir}" + ("  [SIMULATED REHEARSAL DATA]" if simulated else ""))
 
 
 if __name__ == "__main__":

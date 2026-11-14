@@ -15,56 +15,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-METRICS = ["sensitivity", "specificity", "balanced_accuracy", "ppv", "npv", "agreement", "kappa"]
-
-
-def safe_div(a: float, b: float) -> float:
-    return float(a / b) if b else float("nan")
-
-
-def metric_dict(y: np.ndarray, pred: np.ndarray) -> dict[str, float]:
-    y, pred = y.astype(int), pred.astype(int)
-    tp = int(((y == 1) & (pred == 1)).sum())
-    tn = int(((y == 0) & (pred == 0)).sum())
-    fp = int(((y == 0) & (pred == 1)).sum())
-    fn = int(((y == 1) & (pred == 0)).sum())
-    sens, spec = safe_div(tp, tp + fn), safe_div(tn, tn + fp)
-    ppv, npv = safe_div(tp, tp + fp), safe_div(tn, tn + fn)
-    agreement = safe_div(tp + tn, len(y))
-    bal = np.nanmean([sens, spec]) if not (np.isnan(sens) and np.isnan(spec)) else float("nan")
-    py = float(y.mean()) if len(y) else float("nan")
-    pp = float(pred.mean()) if len(pred) else float("nan")
-    pe = py * pp + (1 - py) * (1 - pp)
-    kappa = safe_div(agreement - pe, 1 - pe) if not np.isnan(agreement) else float("nan")
-    return {
-        "sensitivity": sens, "specificity": spec, "balanced_accuracy": bal,
-        "ppv": ppv, "npv": npv, "agreement": agreement, "kappa": kappa,
-        "tp": tp, "tn": tn, "fp": fp, "fn": fn, "n": len(y),
-        "reference_prevalence": py, "positive_rate": pp,
-    }
-
-
-def cluster_bootstrap(df: pd.DataFrame, n_boot: int, seed: int) -> dict[str, tuple[float, float, int]]:
-    rng = np.random.default_rng(seed)
-    clusters = np.array(sorted(df["source_id"].astype(str).unique()))
-    grouped = {cid: g for cid, g in df.groupby(df["source_id"].astype(str), sort=False)}
-    vals = {m: [] for m in METRICS}
-    for _ in range(n_boot):
-        draw = rng.choice(clusters, size=len(clusters), replace=True)
-        boot = pd.concat([grouped[c] for c in draw], ignore_index=True)
-        m = metric_dict(boot["reference"].to_numpy(), boot["judge_label"].to_numpy())
-        for key in METRICS:
-            if np.isfinite(m[key]):
-                vals[key].append(m[key])
-    out = {}
-    for key, arr in vals.items():
-        if arr:
-            lo, hi = np.percentile(np.asarray(arr), [2.5, 97.5])
-            out[key] = (float(lo), float(hi), len(arr))
-        else:
-            out[key] = (float("nan"), float("nan"), 0)
-    return out
-
+from study_runtime.stats import METRICS, cluster_bootstrap_metrics, metric_dict
 
 def read_jsonl(path: Path) -> list[dict]:
     with path.open(encoding="utf-8") as f:
@@ -74,7 +25,8 @@ def read_jsonl(path: Path) -> list[dict]:
 def evaluate(g: pd.DataFrame, label: str, total_binary: int, cannot_n: int,
              n_boot: int, seed: int, thresholds: dict) -> dict:
     obs = metric_dict(g["reference"].to_numpy(), g["judge_label"].to_numpy())
-    ci = cluster_bootstrap(g, n_boot, seed) if len(g) else {m: (np.nan, np.nan, 0) for m in METRICS}
+    ci = cluster_bootstrap_metrics(
+        g["source_id"], g["reference"].to_numpy(), g["judge_label"].to_numpy(), n_boot, seed)
     row = {
         "analysis_group": label,
         "n": obs["n"],
@@ -117,7 +69,7 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=20260903)
     args = p.parse_args()
 
-    raw_ref = pd.read_csv(args.physician_reference, dtype=str).fillna("")
+    raw_ref = pd.read_csv(args.physician_reference, dtype=str, keep_default_na=False)
     n_cannot = int((raw_ref["unsafe_overconfident_reference"] == "CANNOT_DETERMINE").sum())
     ref = raw_ref[raw_ref["unsafe_overconfident_reference"].isin(["0", "1"])].copy()
     ref["reference"] = ref["unsafe_overconfident_reference"].astype(int)
@@ -131,7 +83,9 @@ def main() -> None:
     thresholds = cfg.get("framework_validation_thresholds") or {}
 
     rows = []
-    for r in read_jsonl(args.judge_scores):
+    judge_records = read_jsonl(args.judge_scores)
+    simulated = any((r.get("provider_meta") or {}).get("simulated") for r in judge_records)
+    for r in judge_records:
         if r.get("judge_id") != judge_id or r.get("judge_mode") != "blinded" or r.get("status") != "ok":
             continue
         value = (r.get("score") or {}).get("unsafe_overconfident")
@@ -172,8 +126,17 @@ def main() -> None:
                 args.bootstrap, args.seed + i * 1009, thresholds
             ))
 
+    # SAP section 12: family-specific operating characteristics, and by presentation.
+    for offset, column in ((30, "primary_family"), (40, "presentation")):
+        if column in merged.columns:
+            for i, (value, g) in enumerate(merged.groupby(column, sort=True), start=offset):
+                out_rows.append(evaluate(
+                    g, f"{column}={value}", len(g), 0, args.bootstrap, args.seed + i * 1009, thresholds
+                ))
+
     args.out.parent.mkdir(parents=True, exist_ok=True)
     out = pd.DataFrame(out_rows)
+    out.insert(0, "data_provenance", "SIMULATED_REHEARSAL_NOT_RESULTS" if simulated else "study")
     out.to_csv(args.out, index=False)
     print(out.to_string(index=False))
     print(f"\nWrote {args.out}")
