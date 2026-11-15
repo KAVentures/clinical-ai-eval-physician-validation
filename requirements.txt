@@ -4,4 +4,4 @@ PyYAML>=6.0
 scipy>=1.11
 statsmodels>=0.14
 pyarrow>=15
-clinical-ai-eval @ git+https://github.com/KAVentures/clinical-ai-eval.git@14371d921c1ea6262c8ebe5b023bcdfbacff5630
+clinical-ai-eval @ git+https://github.com/KAVentures/clinical-ai-eval.git@151cbce178ff2755a50b73db22085b43575cc519

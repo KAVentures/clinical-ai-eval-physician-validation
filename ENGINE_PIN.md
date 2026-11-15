@@ -3,20 +3,23 @@
 This study is designed against:
 
 - Repository: `KAVentures/clinical-ai-eval`
-- Commit: `14371d921c1ea6262c8ebe5b023bcdfbacff5630`
+- Commit: `151cbce178ff2755a50b73db22085b43575cc519`
 
 **Pin status: final for this study.** The pin is an exact commit, and pip installs
 it by commit hash (`pyproject.toml`, `requirements.txt`), so it does not depend on
 any branch being merged. The commit is engine `main` as of 2026-11-13 (`5fd7ab5`)
-plus one fix, and is reachable from the engine branch
-`claude/intelligent-wright-ia7wf7`.
+plus the v0.21.1 structural-gate fix and the v0.22.0 self-service and model-choice
+work, and is reachable from the engine branch `claude/intelligent-wright-ia7wf7`.
+Pinning this commit means the study validates the same engine version
+organisations install. The study's own model calls still go through
+`study_runtime/`, which is frozen with the study and simulated in its rehearsal.
 
 Keep that commit reachable: do not delete the branch until the commit is part of
 `main`. A normal merge commit keeps the hash; a squash or rebase merge does not, so
 use a merge commit, or keep the branch. Do not re-pin to a later engine commit for
 convenience: the lock records this commit and refuses to run against any other.
 
-Why the pin moved from `cb2c551`:
+Why the pin moved from `cb2c551` (via `14371d9`):
 
 - `cb2c551` rejected physician-valid variants for surface traits of the *source*
   query (an unpunctuated ending on a short word; the substrings `translate`,
