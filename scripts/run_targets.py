@@ -13,11 +13,11 @@ import hashlib
 import json
 from pathlib import Path
 
-import yaml
 
 from study_runtime.journal import append_record, compact, load_latest, refuse_overwrite
 from study_runtime.lock import require_lock
-from study_runtime.providers import call_provider, load_keys
+from study_runtime.panel import design, load_panel, require_valid
+from study_runtime.providers import call_provider, entry_vendor, load_keys
 
 TERMINAL = {"ok", "model_output_failure"}
 
@@ -54,7 +54,8 @@ def main() -> None:
                    help="Fail closed if the target casepack size differs (primary=60; external=50)")
     args = p.parse_args()
 
-    cfg = yaml.safe_load(args.models.read_text(encoding="utf-8"))
+    cfg = load_panel(args.models)
+    registry = require_valid(cfg)
     if not cfg.get("frozen") and not args.allow_unfrozen:
         raise RuntimeError("model panel is not frozen; dry-run first, then freeze before primary execution")
 
@@ -62,8 +63,8 @@ def main() -> None:
         require_lock(args.lock, allow_rehearsal=args.rehearsal)
 
     targets = cfg.get("target_models") or []
-    if len(targets) != 4 or len({t.get("provider") for t in targets}) != 4:
-        raise RuntimeError("protocol expects exactly four target models from four distinct providers")
+    print(f"Target panel ({design(cfg)['target_count']} models): "
+          + ", ".join(f"{t['target_id']}={t['provider']}/{t['model']}" for t in targets))
 
     policy = cfg.get("inference_policy") or {}
     max_attempts = int(policy.get("max_attempts", 4))
@@ -71,7 +72,7 @@ def main() -> None:
     timeout = int(policy.get("timeout_seconds", 180))
     max_tokens = int(policy.get("target_max_output_tokens", 3500))
 
-    keys = load_keys(args.keys)
+    keys = load_keys(args.keys, registry)
     cases = read_jsonl(args.casepack)
     if args.limit:
         cases = cases[: args.limit]
@@ -109,6 +110,7 @@ def main() -> None:
                     max_attempts=max_attempts,
                     retry_backoff_seconds=backoff,
                     timeout_seconds=timeout,
+                    registry=registry,
                 )
                 records[response_id] = {
                     "response_id": response_id,
@@ -122,7 +124,10 @@ def main() -> None:
                     "primary_family": case["primary_family"],
                     "presentation": presentation,
                     "target_id": target["target_id"],
-                    "target_provider": target["provider"],
+                    # Developer of the model (used by the same-developer judge
+                    # audit) and the API that served it; equal for direct APIs.
+                    "target_provider": entry_vendor(target, registry),
+                    "target_api_provider": target["provider"],
                     "target_model": target["model"],
                     "input_text": input_text,
                     "response_text": text,

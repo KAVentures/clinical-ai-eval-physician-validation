@@ -16,6 +16,8 @@ python -m pip install -e ".[test]"
 python scripts/rehearse_study.py
 ~~~
 
+Models are chosen in `configs/model_panel.yaml` only; see `docs/CHOOSING_MODELS.md`. Check the panel offline at any time with `python scripts/validate_panel.py`.
+
 `rehearse_study.py` runs the unit tests and then every phase below, in order, as
 real subprocesses at full study size (150-source pack, 480 response cells, 960
 ratings, 480 judge calls, the 50-source external cohort) with no network: synthetic
@@ -201,6 +203,8 @@ This happens before any target response exists.
 Using a non-study prompt, verify every configured author/target/judge endpoint and credential:
 
 ~~~bash
+python scripts/validate_panel.py      # offline
+python scripts/list_models.py         # free; confirm IDs, check for newer versions
 python scripts/smoke_test_providers.py
 ~~~
 
@@ -296,6 +300,8 @@ python scripts/make_response_packets.py \
   --out-dir "$STUDY_VAULT/review/responses"
 ~~~
 
+Each reviewer gets `response_review_<R>_wave1.csv` and `_wave2.csv`. A source's original and perturbed responses are always in different waves. Send wave 2 only after that reviewer has returned wave 1.
+
 A/B/C complete only their assigned packets and do not discuss cells before independent submissions are locked.
 
 ## Phase 9 — run the one automated evaluator on the SAME 480 cells
@@ -327,22 +333,28 @@ After all three independent physician packet files are locked:
 ~~~bash
 python scripts/response_adjudication.py prepare \
   --units "$STUDY_VAULT/review/physician_calibration_units.private.jsonl" \
-  --review "$STUDY_VAULT/review/responses/response_review_A.csv" \
-  --review "$STUDY_VAULT/review/responses/response_review_B.csv" \
-  --review "$STUDY_VAULT/review/responses/response_review_C.csv" \
+  --review "$STUDY_VAULT/review/responses/response_review_A_wave1.csv" \
+  --review "$STUDY_VAULT/review/responses/response_review_A_wave2.csv" \
+  --review "$STUDY_VAULT/review/responses/response_review_B_wave1.csv" \
+  --review "$STUDY_VAULT/review/responses/response_review_B_wave2.csv" \
+  --review "$STUDY_VAULT/review/responses/response_review_C_wave1.csv" \
+  --review "$STUDY_VAULT/review/responses/response_review_C_wave2.csv" \
   --out "$STUDY_VAULT/review/responses/response_consensus.csv"
 ~~~
 
-Only cells where the two assigned response reviewers disagree or use `CANNOT_DETERMINE` appear in the consensus file. The same two reviewers resolve those cells after their independent ratings are locked. The construct reviewer does not participate.
+Only cells where the two assigned response reviewers disagree on at least one endpoint (primary or secondary), or use `CANNOT_DETERMINE`, appear in the consensus file. Agreed endpoints are prefilled and locked. In the rehearsal about 45% of cells needed discussion of at least one endpoint; budget roughly one minute per such cell per reviewer pair. The same two reviewers resolve those cells after their independent ratings are locked. The construct reviewer does not participate.
 
 Finalize:
 
 ~~~bash
 python scripts/response_adjudication.py finalize \
   --units "$STUDY_VAULT/review/physician_calibration_units.private.jsonl" \
-  --review "$STUDY_VAULT/review/responses/response_review_A.csv" \
-  --review "$STUDY_VAULT/review/responses/response_review_B.csv" \
-  --review "$STUDY_VAULT/review/responses/response_review_C.csv" \
+  --review "$STUDY_VAULT/review/responses/response_review_A_wave1.csv" \
+  --review "$STUDY_VAULT/review/responses/response_review_A_wave2.csv" \
+  --review "$STUDY_VAULT/review/responses/response_review_B_wave1.csv" \
+  --review "$STUDY_VAULT/review/responses/response_review_B_wave2.csv" \
+  --review "$STUDY_VAULT/review/responses/response_review_C_wave1.csv" \
+  --review "$STUDY_VAULT/review/responses/response_review_C_wave2.csv" \
   --consensus "$STUDY_VAULT/review/responses/response_consensus.csv" \
   --out "$STUDY_VAULT/review/physician_reference.private.csv"
 ~~~

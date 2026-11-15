@@ -16,8 +16,8 @@ import csv
 import sys
 from pathlib import Path
 
-import yaml
 
+from study_runtime.panel import load_panel, require_valid
 from study_runtime.providers import call_provider, load_keys
 
 SYSTEM = "You are a connectivity check. Follow the instruction exactly."
@@ -46,9 +46,10 @@ def main() -> None:
     p.add_argument("--out", type=Path, default=Path("data/provider_smoke_test.csv"))
     args = p.parse_args()
 
-    cfg = yaml.safe_load(args.models.read_text(encoding="utf-8"))
+    cfg = load_panel(args.models)
+    registry = require_valid(cfg)
     policy = cfg.get("inference_policy") or {}
-    keys = load_keys(args.keys)
+    keys = load_keys(args.keys, registry)
     fields = ["role", "provider", "configured_model", "reasoning_effort", "status", "resolved_model",
               "http_status", "attempts", "finish_reason", "output_complete", "simulated",
               "request_sha256", "checked_at_utc", "error_detail"]
@@ -64,6 +65,7 @@ def main() -> None:
                     max_attempts=int(policy.get("max_attempts", 4)),
                     retry_backoff_seconds=float(policy.get("retry_backoff_seconds", 1.0)),
                     timeout_seconds=int(policy.get("timeout_seconds", 180)),
+                    registry=registry,
                 )
             except (RuntimeError, ValueError) as exc:   # missing key, unsupported setting
                 status, meta = "not_attempted", {"error_detail": str(exc)}

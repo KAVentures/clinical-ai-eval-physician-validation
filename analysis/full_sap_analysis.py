@@ -40,18 +40,19 @@ def read_jsonl(path: Path) -> list[dict]:
         return [json.loads(line) for line in f if line.strip()]
 
 
-def agreement_row(g: pd.DataFrame, dimension: str, value: str) -> dict:
-    z = g[
-        g["physician_1_unsafe_overconfident"].isin(BINARY)
-        & g["physician_2_unsafe_overconfident"].isin(BINARY)
-    ].copy()
+def agreement_row(g: pd.DataFrame, dimension: str, value: str, endpoint: str = "unsafe_overconfident") -> dict:
+    """Independent (pre-consensus) agreement where both physicians gave 0 or 1."""
+    a_col, b_col = f"physician_1_{endpoint}", f"physician_2_{endpoint}"
+    base = {"endpoint": endpoint, "group_dimension": dimension, "group_value": value}
+    if a_col not in g or b_col not in g:
+        return {**base, "n": 0}
+    z = g[g[a_col].isin(BINARY) & g[b_col].isin(BINARY)]
     if z.empty:
-        return {"group_dimension": dimension, "group_value": value, "n": 0}
-    a = z["physician_1_unsafe_overconfident"].astype(int).to_numpy()
-    b = z["physician_2_unsafe_overconfident"].astype(int).to_numpy()
+        return {**base, "n": 0}
+    a = z[a_col].astype(int).to_numpy()
+    b = z[b_col].astype(int).to_numpy()
     return {
-        "group_dimension": dimension,
-        "group_value": value,
+        **base,
         "n": len(z),
         "percent_agreement": float((a == b).mean()),
         "discordance_rate": float((a != b).mean()),
@@ -83,15 +84,17 @@ def metric_counts(y: np.ndarray, pred: np.ndarray) -> dict:
 
 
 def human_agreement(ref: pd.DataFrame, outdir: Path) -> None:
-    rows = [agreement_row(ref, "overall", "all")]
     pair = ref["response_reviewer_1"].astype(str) + "+" + ref["response_reviewer_2"].astype(str)
     tmp = ref.assign(reviewer_pair=pair)
-    for dim in ["reviewer_pair", "presentation", "primary_family", "target_id",
-                "source_type", "source_difficulty", "specialty"]:
-        if dim not in tmp:
-            continue
-        for value, g in tmp.groupby(dim, dropna=False):
-            rows.append(agreement_row(g, dim, str(value)))
+    rows = []
+    for endpoint in ENDPOINTS:
+        rows.append(agreement_row(tmp, "overall", "all", endpoint))
+        for dim in ["reviewer_pair", "presentation", "primary_family", "target_id",
+                    "source_type", "source_difficulty", "specialty"]:
+            if dim not in tmp:
+                continue
+            for value, g in tmp.groupby(dim, dropna=False):
+                rows.append(agreement_row(g, dim, str(value), endpoint))
     pd.DataFrame(rows).to_csv(outdir / "human_human_agreement.csv", index=False)
 
 
@@ -105,12 +108,13 @@ def _paired(z: pd.DataFrame, col: str) -> pd.DataFrame:
     return pivot.dropna(subset=["original", "perturbed"])
 
 
-def target_robustness(ref: pd.DataFrame, outdir: Path, n_boot: int, seed: int) -> None:
+def target_robustness(ref: pd.DataFrame, outdir: Path, n_boot: int, seed: int,
+                      suffix: str = "_reference", out_name: str = "physician_target_robustness.csv") -> None:
     """Paired original-vs-perturbed change per target and endpoint, overall and
     within each perturbation family (SAP sections 9 and 12)."""
     rows = []
     for ei, endpoint in enumerate(ENDPOINTS):
-        col = f"{endpoint}_reference"
+        col = f"{endpoint}{suffix}"
         if col not in ref:
             continue
         for scope in ["all", *sorted(ref["primary_family"].unique())]:
@@ -149,7 +153,7 @@ def target_robustness(ref: pd.DataFrame, outdir: Path, n_boot: int, seed: int) -
                     # Holm across the four targets, within endpoint and family scope.
                     r["mcnemar_holm_p"] = float(padj)
                 rows.extend(endpoint_rows)
-    pd.DataFrame(rows).to_csv(outdir / "physician_target_robustness.csv", index=False)
+    pd.DataFrame(rows).to_csv(outdir / out_name, index=False)
 
 
 def target_arm_rates(ref: pd.DataFrame, outdir: Path, n_boot: int, seed: int) -> None:
@@ -383,9 +387,9 @@ def target_failures_and_automated(responses_path: Path, jdf: pd.DataFrame, cfg: 
     pd.DataFrame(rows).to_csv(outdir / "automated_calibration_cohort_target_estimates.csv", index=False)
 
 def reference_missingness(ref: pd.DataFrame, outdir: Path) -> None:
-    """Exact denominators for every endpoint. The primary endpoint is resolved by
-    consensus; a secondary endpoint has a reference only where the two independent
-    physicians gave the same binary label, so its unresolved cells are split out."""
+    """Exact denominators for every endpoint, split by reason. Every endpoint is
+    resolved by the same locked consensus; NA is a legitimate secondary value
+    (e.g. no information problem exists on an original case)."""
     rows = []
     for endpoint in ENDPOINTS:
         col = f"{endpoint}_reference"
@@ -396,11 +400,14 @@ def reference_missingness(ref: pd.DataFrame, outdir: Path) -> None:
             "endpoint": endpoint,
             "total_cells": len(ref),
             "binary_resolved": int(ref[col].isin(BINARY).sum()),
+            "not_applicable": int((ref[col] == "NA").sum()),
             "cannot_determine": int((ref[col] == "CANNOT_DETERMINE").sum()),
-            "unresolved_other": int((~ref[col].isin(BINARY | {"CANNOT_DETERMINE"})).sum()),
-            "consensus_used": int((ref.get("primary_consensus_used", pd.Series(dtype=str)) == "true").sum())
-            if endpoint == "unsafe_overconfident" else "",
+            "unresolved_other": int((~ref[col].isin(BINARY | {"CANNOT_DETERMINE", "NA"})).sum()),
+            "consensus_used": int((ref.get(f"{endpoint}_consensus_used", pd.Series(dtype=str)) == "true").sum()),
         }
+        agreement_only = ref.get(f"{endpoint}_reference_agreement_only")
+        if agreement_only is not None:
+            row["binary_resolved_by_agreement_alone"] = int(agreement_only.isin(BINARY).sum())
         if a is not None and b is not None:
             both = a.isin(BINARY) & b.isin(BINARY)
             row["independent_both_binary"] = int(both.sum())
@@ -446,6 +453,12 @@ def main() -> None:
     reference_missingness(ref, args.out_dir)
     human_agreement(ref, args.out_dir)
     target_robustness(ref, args.out_dir, args.bootstrap, args.seed)
+    if "unsafe_overconfident_reference_agreement_only" in ref:
+        # Prespecified sensitivity analysis: the same estimands using only labels
+        # the two physicians agreed on independently, before any discussion.
+        target_robustness(ref, args.out_dir, args.bootstrap, args.seed + 70000,
+                          suffix="_reference_agreement_only",
+                          out_name="physician_target_robustness_agreement_only.csv")
     target_arm_rates(ref, args.out_dir, args.bootstrap, args.seed)
     target_pairwise(ref, args.out_dir, args.bootstrap, args.seed + 50000)
     gee_models(ref, args.out_dir)

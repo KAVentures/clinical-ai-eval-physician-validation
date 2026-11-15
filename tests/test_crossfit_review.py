@@ -27,6 +27,18 @@ def write_csv(path: Path, rows):
         w.writerows(rows)
 
 
+def packets(outdir: Path, reviewers: str = "ABC") -> list[Path]:
+    return sorted(p for r in reviewers for p in outdir.glob(f"response_review_{r}_wave*.csv"))
+
+
+def rows_for(outdir: Path, reviewer: str) -> list[dict]:
+    return [row for path in packets(outdir, reviewer) for row in read_csv(path)]
+
+
+def review_args(outdir: Path) -> list:
+    return [x for path in packets(outdir) for x in ("--review", path)]
+
+
 def test_crossfit_packets_and_cannot_determine_consensus(tmp_path):
     units = [
         {
@@ -58,9 +70,7 @@ def test_crossfit_packets_and_cannot_determine_consensus(tmp_path):
 
     run("scripts/make_response_packets.py", "--units", unit_path, "--out-dir", outdir)
 
-    a = read_csv(outdir / "response_review_A.csv")
-    b = read_csv(outdir / "response_review_B.csv")
-    c = read_csv(outdir / "response_review_C.csv")
+    a, b, c = (rows_for(outdir, r) for r in "ABC")
     assert {r["review_unit_id"] for r in a} == {"u2"}
     assert {r["review_unit_id"] for r in b} == {"u1"}
     assert {r["review_unit_id"] for r in c} == {"u1", "u2"}
@@ -69,8 +79,10 @@ def test_crossfit_packets_and_cannot_determine_consensus(tmp_path):
         ("u1", "B"): "0", ("u1", "C"): "1",
         ("u2", "A"): "CANNOT_DETERMINE", ("u2", "C"): "0",
     }
-    for path in (outdir / "response_review_A.csv", outdir / "response_review_B.csv", outdir / "response_review_C.csv"):
+    for path in packets(outdir):
         rows = read_csv(path)
+        if not rows:
+            continue
         for r in rows:
             r["unsafe_overconfident"] = labels[(r["review_unit_id"], r["reviewer_id"])]
             for endpoint in ("potentially_harmful_treatment", "recognizes_information_problem",
@@ -83,9 +95,7 @@ def test_crossfit_packets_and_cannot_determine_consensus(tmp_path):
     run(
         "scripts/response_adjudication.py", "prepare",
         "--units", unit_path,
-        "--review", outdir / "response_review_A.csv",
-        "--review", outdir / "response_review_B.csv",
-        "--review", outdir / "response_review_C.csv",
+        *review_args(outdir),
         "--out", consensus,
     )
     rows = read_csv(consensus)
@@ -99,9 +109,7 @@ def test_crossfit_packets_and_cannot_determine_consensus(tmp_path):
     run(
         "scripts/response_adjudication.py", "finalize",
         "--units", unit_path,
-        "--review", outdir / "response_review_A.csv",
-        "--review", outdir / "response_review_B.csv",
-        "--review", outdir / "response_review_C.csv",
+        *review_args(outdir),
         "--consensus", consensus,
         "--out", ref,
     )
@@ -124,16 +132,49 @@ def test_blank_secondary_label_is_refused_not_treated_as_missing(tmp_path):
     unit_path.write_text(json.dumps(unit) + "\n", encoding="utf-8")
     outdir = tmp_path / "reviews"
     run("scripts/make_response_packets.py", "--units", unit_path, "--out-dir", outdir)
-    paths = [outdir / f"response_review_{r}.csv" for r in "BC"]
+    paths = packets(outdir, "BC")
     for path in paths:
         rows = read_csv(path)
         for r in rows:
             r["unsafe_overconfident"] = "0"   # secondary endpoints left blank
         write_csv(path, rows)
+    paths = [p for p in paths if read_csv(p)]
     result = subprocess.run(
         [sys.executable, "scripts/response_adjudication.py", "finalize", "--units", str(unit_path),
-         "--review", str(paths[0]), "--review", str(paths[1]), "--out", str(tmp_path / "ref.csv")],
+         *[x for p in paths for x in ("--review", str(p))], "--out", str(tmp_path / "ref.csv")],
         cwd=ROOT, capture_output=True, text=True,
     )
     assert result.returncode != 0
     assert "A blank is not a rating" in result.stderr
+
+
+def test_a_sources_two_presentations_never_share_a_wave(tmp_path):
+    units = []
+    for i in range(12):
+        for presentation in ("original", "perturbed"):
+            for t in ("t1", "t2"):
+                units.append({
+                    "review_unit_id": f"u{i}{presentation[0]}{t}", "case_text": "c", "response_text": "r",
+                    "construct_reviewer_internal": "ABC"[i % 3],
+                    "response_reviewers_internal": [x for x in "ABC" if x != "ABC"[i % 3]],
+                    "source_id_internal": f"s{i}", "case_id_internal": f"c{i}",
+                    "primary_family_internal": "missing_information", "presentation_internal": presentation,
+                    "target_id_internal": t, "response_id_internal": f"r{i}{presentation}{t}",
+                })
+    unit_path = tmp_path / "units.jsonl"
+    unit_path.write_text("\n".join(json.dumps(x) for x in units) + "\n", encoding="utf-8")
+    outdir = tmp_path / "reviews"
+    run("scripts/make_response_packets.py", "--units", unit_path, "--out-dir", outdir)
+    by_id = {u["review_unit_id"]: u for u in units}
+    firsts = set()
+    for reviewer in "ABC":
+        waves = [read_csv(outdir / f"response_review_{reviewer}_wave{w}.csv") for w in (1, 2)]
+        for rows in waves:
+            seen = {}
+            for r in rows:
+                u = by_id[r["review_unit_id"]]
+                seen.setdefault(u["source_id_internal"], set()).add(u["presentation_internal"])
+            assert all(len(v) == 1 for v in seen.values())
+        for r in waves[0]:
+            firsts.add(by_id[r["review_unit_id"]]["presentation_internal"])
+    assert firsts == {"original", "perturbed"}      # which goes first is randomised

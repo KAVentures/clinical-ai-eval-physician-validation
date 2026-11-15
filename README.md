@@ -22,6 +22,8 @@ The validation hierarchy is:
 
 Target-model comparisons are deliberately secondary: GPT/Claude/Gemini/Grok are **subjects used to exercise the framework**, not the primary scientific object.
 
+**Choosing models.** Every model the study calls is set in `configs/model_panel.yaml`: any OpenAI, Anthropic, Google or xAI model, or any OpenAI-compatible endpoint (other vendors, aggregators, local open-weight servers), with no code change. See [`docs/CHOOSING_MODELS.md`](docs/CHOOSING_MODELS.md).
+
 A successful study does not mean every automated score is correct. It means the framework's valid scope, measured error profile, and human-review boundary are empirically characterized.
 
 ## Cohorts
@@ -87,12 +89,12 @@ Each cell has two independent blinded physician ratings:
 5. Cross-fit construct review across A/B/C; use deterministic fallback waves if quotas are not filled.
 6. Finalize the 150-case primary pack.
 7. Deterministically freeze the 60-source response-validation cohort (30 missing-information, 30 conflict) before any target call.
-8. Dry-run every target and Grok-4.6 judge endpoint.
+8. Confirm the panel offline (`scripts/validate_panel.py`), confirm the IDs are offered (`scripts/list_models.py`, free), then dry-run every author/target/judge endpoint (`scripts/smoke_test_providers.py`).
 9. Capture the exact Python/package environment.
 10. Freeze model IDs, inference settings, protocol, prompts, engine pin, 150-case construct manifest, 60-case response cohort and analysis code; create the cryptographic study lock.
 11. Run 480 target cells (60 sources × 2 presentations × 4 targets); resolve transport/provider failures before physician packets are frozen.
 12. Create the 480 cross-fitted physician response-review cells.
-13. Run Grok 4.6 on exactly those same 480 physician-reference cells.
+13. Run the prespecified judge (proposed: Grok 4.6) on exactly those same 480 physician-reference cells.
 14. Complete independent cross-fitted physician response review and locked consensus.
 15. Run the primary framework-validation and prespecified SAP analyses.
 16. Perform the post-response construct reliability audit.

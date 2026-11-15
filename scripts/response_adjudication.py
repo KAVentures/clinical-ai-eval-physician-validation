@@ -101,51 +101,79 @@ def label_for(reviews: dict, uid: str, reviewer: str) -> str:
     return norm(row.get(PRIMARY))
 
 
-def prepare(args) -> None:
-    units = {str(u["review_unit_id"]): u for u in read_jsonl(args.units)}
-    reviews = load_reviews(args.review)
-    expected_keys = {
-        (uid, reviewer)
-        for uid, u in units.items()
-        for reviewer in expected_pair(u)
-    }
+ENDPOINTS = [PRIMARY, *SECONDARY]
+
+
+def allowed(endpoint: str) -> set[str]:
+    return PRIMARY_ALLOWED if endpoint == PRIMARY else SECONDARY_ALLOWED
+
+
+def agreed(endpoint: str, a: str, b: str) -> bool:
+    """Independent labels that need no discussion. NA/NA is agreement for a
+    secondary endpoint (genuinely not applicable); it is never valid for the
+    primary endpoint, and CANNOT_DETERMINE always goes to consensus."""
+    if a != b:
+        return False
+    return a in BINARY or (endpoint != PRIMARY and a == "NA")
+
+
+def coverage(units: dict, reviews: dict) -> None:
+    expected_keys = {(uid, r) for uid, u in units.items() for r in expected_pair(u)}
     extra = set(reviews) - expected_keys
     missing = expected_keys - set(reviews)
-    if extra or missing:
+    if extra:
         raise RuntimeError(
-            f"independent review coverage mismatch: missing={sorted(missing)[:3]}, extra={sorted(extra)[:3]}"
-        )
+            f"{len(extra)} response reviews fall outside the cross-fit assignment "
+            f"(e.g. {sorted(extra)[:3]}); a construct reviewer must never rate their own source")
+    if missing:
+        raise RuntimeError(f"independent reviews missing for {len(missing)} assignments, e.g. {sorted(missing)[:3]}")
 
-    fields = [
-        "review_unit_id", "case_text", "response_text", "response_reviewer_pair",
-        "initial_label_1", "initial_label_2", "consensus_unsafe_overconfident",
-        "consensus_rationale", "reviewed_at_utc",
-    ]
+
+def labels(reviews: dict, uid: str, r1: str, r2: str, endpoint: str) -> tuple[str, str]:
+    return norm(reviews[(uid, r1)].get(endpoint)), norm(reviews[(uid, r2)].get(endpoint))
+
+
+def prepare(args) -> None:
+    """One row per cell with ANY endpoint unresolved. Every endpoint shows both
+    locked labels; endpoints already agreed are prefilled and must not change."""
+    units = {str(u["review_unit_id"]): u for u in read_jsonl(args.units)}
+    reviews = load_reviews(args.review)
+    coverage(units, reviews)
+
+    fields = ["review_unit_id", "case_text", "response_text", "response_reviewer_pair", "needs_consensus"]
+    for e in ENDPOINTS:
+        fields += [f"{e}_label_1", f"{e}_label_2", f"consensus_{e}"]
+    fields += ["consensus_rationale", "reviewed_at_utc"]
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    n = 0
+    n_cells, per_endpoint = 0, {e: 0 for e in ENDPOINTS}
     with args.out.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
         for uid in sorted(units):
             u = units[uid]
             r1, r2 = expected_pair(u)
-            a, b = label_for(reviews, uid, r1), label_for(reviews, uid, r2)
-            if a == b and a in BINARY:
+            row = {"review_unit_id": uid, "case_text": u["case_text"], "response_text": u["response_text"],
+                   "response_reviewer_pair": f"{r1}+{r2}"}
+            needs = []
+            for e in ENDPOINTS:
+                a, b = labels(reviews, uid, r1, r2, e)
+                row[f"{e}_label_1"], row[f"{e}_label_2"] = a, b
+                if agreed(e, a, b):
+                    row[f"consensus_{e}"] = a
+                else:
+                    row[f"consensus_{e}"] = ""
+                    needs.append(e)
+            if not needs:
                 continue
-            w.writerow({
-                "review_unit_id": uid,
-                "case_text": u["case_text"],
-                "response_text": u["response_text"],
-                "response_reviewer_pair": f"{r1}+{r2}",
-                "initial_label_1": a,
-                "initial_label_2": b,
-                "consensus_unsafe_overconfident": "",
-                "consensus_rationale": "",
-                "reviewed_at_utc": "",
-            })
-            n += 1
-    print(f"Prepared {n} joint-consensus units: {args.out}")
-    print("Consensus occurs only after independent response labels are locked; CANNOT_DETERMINE remains allowed.")
+            row.update({"needs_consensus": ";".join(needs), "consensus_rationale": "", "reviewed_at_utc": ""})
+            w.writerow(row)
+            n_cells += 1
+            for e in needs:
+                per_endpoint[e] += 1
+    print(f"Prepared {n_cells} joint-consensus cells: {args.out}")
+    print("Endpoints to resolve: " + ", ".join(f"{e}={n}" for e, n in per_endpoint.items()))
+    print("Fill only the blank consensus_ columns. Prefilled values are the reviewers' agreed labels and "
+          "are rejected if changed. Consensus occurs only after independent labels are locked.")
 
 
 def load_consensus(path: Path | None) -> dict[str, dict]:
@@ -156,9 +184,15 @@ def load_consensus(path: Path | None) -> dict[str, dict]:
         uid = str(row.get("review_unit_id", "")).strip()
         if not uid or uid in out:
             raise ValueError(f"missing/duplicate consensus review_unit_id {uid!r}")
-        value = norm(row.get("consensus_unsafe_overconfident"))
-        if value not in PRIMARY_ALLOWED:
-            raise ValueError(f"consensus label for {uid} must be 0, 1, or {CANNOT}")
+        for e in ENDPOINTS:
+            column = f"consensus_{e}"
+            if column not in row:
+                continue          # older sheets carried the primary endpoint only
+            value = norm(row.get(column))
+            if value not in allowed(e):
+                raise ValueError(
+                    f"consensus {e} for {uid} must be one of {sorted(allowed(e))}; got {value!r}. "
+                    "A blank is not a decision.")
         out[uid] = row
     return out
 
@@ -167,43 +201,16 @@ def finalize(args) -> None:
     units = {str(u["review_unit_id"]): u for u in read_jsonl(args.units)}
     reviews = load_reviews(args.review)
     consensus = load_consensus(args.consensus)
-    expected_keys = {(uid, r) for uid, u in units.items() for r in expected_pair(u)}
-    extra = set(reviews) - expected_keys
-    if extra:
-        raise RuntimeError(
-            f"{len(extra)} response reviews fall outside the cross-fit assignment "
-            f"(e.g. {sorted(extra)[:3]}); a construct reviewer must never rate their own source"
-        )
+    coverage(units, reviews)
     stray = set(consensus) - set(units)
     if stray:
         raise RuntimeError(f"consensus sheet references unknown units: {sorted(stray)[:3]}")
 
     out_rows = []
-    n_consensus = n_cannot = 0
+    counts = {e: {"consensus": 0, "cannot": 0} for e in ENDPOINTS}
     for uid in sorted(units):
         u = units[uid]
         r1, r2 = expected_pair(u)
-        row1 = reviews.get((uid, r1))
-        row2 = reviews.get((uid, r2))
-        if row1 is None or row2 is None:
-            raise RuntimeError(f"{uid}: both cross-fitted independent reviews are required")
-        a, b = norm(row1.get(PRIMARY)), norm(row2.get(PRIMARY))
-
-        if a == b and a in BINARY:
-            reference = a
-            used_consensus = False
-            consensus_value = ""
-        else:
-            if uid not in consensus:
-                raise RuntimeError(f"{uid}: disagreement/indeterminate primary label requires locked consensus")
-            reference = norm(consensus[uid].get("consensus_unsafe_overconfident"))
-            consensus_value = reference
-            used_consensus = True
-            n_consensus += 1
-
-        if reference == CANNOT:
-            n_cannot += 1
-
         out = {
             "review_unit_id": uid,
             "source_id": u["source_id_internal"],
@@ -220,19 +227,33 @@ def finalize(args) -> None:
             "construct_reviewer": u["construct_reviewer_internal"],
             "response_reviewer_1": r1,
             "response_reviewer_2": r2,
-            "physician_1_unsafe_overconfident": a,
-            "physician_2_unsafe_overconfident": b,
-            "consensus_unsafe_overconfident": consensus_value,
-            "unsafe_overconfident_reference": reference,
-            "primary_consensus_used": str(used_consensus).lower(),
         }
-
-        for endpoint in SECONDARY:
-            va = norm(row1.get(endpoint))
-            vb = norm(row2.get(endpoint))
-            out[f"physician_1_{endpoint}"] = va
-            out[f"physician_2_{endpoint}"] = vb
-            out[f"{endpoint}_reference"] = va if va in BINARY and va == vb else "NA"
+        for e in ENDPOINTS:
+            a, b = labels(reviews, uid, r1, r2, e)
+            given = norm(consensus.get(uid, {}).get(f"consensus_{e}")) if f"consensus_{e}" in consensus.get(uid, {}) else None
+            if agreed(e, a, b):
+                if given not in (None, a):
+                    raise RuntimeError(
+                        f"{uid}: consensus sheet changes the agreed {e} label {a!r} to {given!r}; "
+                        "independent agreement is final")
+                reference, used, value = a, False, ""
+            else:
+                if given is None:
+                    raise RuntimeError(f"{uid}: {e} needs a locked consensus label "
+                                       f"(independent labels {a!r} / {b!r})")
+                reference, used, value = given, True, given
+                counts[e]["consensus"] += 1
+            if reference == CANNOT:
+                counts[e]["cannot"] += 1
+            out[f"physician_1_{e}"] = a
+            out[f"physician_2_{e}"] = b
+            out[f"consensus_{e}"] = value
+            out[f"{e}_reference"] = reference
+            out[f"{e}_consensus_used"] = str(used).lower()
+            # Prespecified sensitivity analysis: the reference built from
+            # independent agreement alone, before any discussion.
+            out[f"{e}_reference_agreement_only"] = a if agreed(e, a, b) else "UNRESOLVED"
+        out["primary_consensus_used"] = out[f"{PRIMARY}_consensus_used"]
         out_rows.append(out)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -243,7 +264,8 @@ def finalize(args) -> None:
         w.writerows(out_rows)
 
     print(f"Finalized {len(out_rows)} physician reference rows: {args.out}")
-    print(f"Primary consensus used: {n_consensus}; unresolved CANNOT_DETERMINE: {n_cannot}")
+    for e, c in counts.items():
+        print(f"  {e}: consensus used {c['consensus']}, final CANNOT_DETERMINE {c['cannot']}")
 
 
 def add_common(parser: argparse.ArgumentParser) -> None:

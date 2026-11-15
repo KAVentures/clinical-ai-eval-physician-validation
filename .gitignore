@@ -11,9 +11,7 @@ vault/
 review/construct_review_A*.csv
 review/construct_review_B*.csv
 review/construct_review_C*.csv
-review/response_review_A.csv
-review/response_review_B.csv
-review/response_review_C.csv
+review/response_review_*.csv
 review/response_consensus.csv
 
 # Local Python artifacts

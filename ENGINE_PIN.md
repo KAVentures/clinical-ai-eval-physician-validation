@@ -5,12 +5,16 @@ This study is designed against:
 - Repository: `KAVentures/clinical-ai-eval`
 - Commit: `14371d921c1ea6262c8ebe5b023bcdfbacff5630`
 
-**Pin status (2026-11-14): provisional.** This commit is engine `main` as of
-2026-11-13 (`5fd7ab5`) plus one fix, and it currently lives on the engine branch
-`claude/intelligent-wright-ia7wf7`, not yet on `main`. Once that branch is merged,
-re-pin to the resulting `main` commit before lock (a squash merge changes the SHA),
-update `pyproject.toml` and `requirements.txt` to match, and rerun
-`python scripts/rehearse_study.py`.
+**Pin status: final for this study.** The pin is an exact commit, and pip installs
+it by commit hash (`pyproject.toml`, `requirements.txt`), so it does not depend on
+any branch being merged. The commit is engine `main` as of 2026-11-13 (`5fd7ab5`)
+plus one fix, and is reachable from the engine branch
+`claude/intelligent-wright-ia7wf7`.
+
+Keep that commit reachable: do not delete the branch until the commit is part of
+`main`. A normal merge commit keeps the hash; a squash or rebase merge does not, so
+use a merge commit, or keep the branch. Do not re-pin to a later engine commit for
+convenience: the lock records this commit and refuses to run against any other.
 
 Why the pin moved from `cb2c551`:
 

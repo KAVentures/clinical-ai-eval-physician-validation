@@ -61,7 +61,9 @@ Independent labels are permanently retained.
 
 Binary operating-characteristic analyses exclude final CANNOT_DETERMINE cells and report their count.
 
-Secondary endpoints have no consensus step. A secondary endpoint has a reference value only where the two independent physicians gave the same binary label; discordant, NA and CANNOT_DETERMINE cells are unresolved for that endpoint and are counted, by reason, in `physician_reference_missingness.csv`. Secondary estimates therefore describe the concordant subset and are reported with their resolved denominators.
+Secondary endpoints go through the same locked consensus as the primary endpoint, so their estimates are not restricted to the cells two physicians happened to agree on. Both reviewers choosing NA is agreement that the endpoint does not apply. Every endpoint's cells are counted by outcome (binary, NA, CANNOT_DETERMINE, resolved by consensus, resolved by independent agreement alone) in `physician_reference_missingness.csv`.
+
+Prespecified sensitivity analysis: all physician-rated target-model estimates are repeated using only the labels the two physicians agreed on independently, before any discussion (`physician_target_robustness_agreement_only.csv`). Human-human agreement and kappa are reported for every endpoint from the independent labels.
 
 A metric whose denominator is empty is reported as undefined, never as 0. Balanced accuracy is defined only when both sensitivity and specificity are.
 
@@ -102,6 +104,8 @@ Primary 95% CIs use a nonparametric source-case cluster bootstrap with 10,000 re
 A bootstrap draw lacking a required outcome class is omitted only for the undefined metric; valid replicate counts are reported.
 
 ## 6. Automated-evaluator missingness
+
+A judge answer that cannot be parsed is re-requested, up to three attempts in total; a parseable answer is never re-requested. The number of attempts is reported.
 
 Judge transport/provider/output/parse failures are missing measurements, never negatives.
 
@@ -375,6 +379,7 @@ Secondary SAP:
 - `results/sap/automated_calibration_cohort_target_estimates.csv`
 - `results/sap/physician_reference_missingness.csv`
 - `results/sap/physician_target_arm_rates.csv`
+- `results/sap/physician_target_robustness_agreement_only.csv`
 - `results/sap/judge_measurement_status.csv`
 - `results/sap/target_output_completeness.csv`
 - `results/construct_validity_flow.csv` (and the external-cohort equivalent)

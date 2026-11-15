@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Create cross-fitted reviewer-facing CSVs with no model/perturbation identifiers.
 
+Output: response_review_<R>_wave1.csv and _wave2.csv for each reviewer.
+
 Each calibration unit already carries the two physicians who were NOT exposed to
 that source's construct-validation pair. This script whitelists reviewer-facing
 fields and refuses to send a unit to its construct reviewer.
@@ -57,31 +59,48 @@ def main() -> None:
         for reviewer in response_reviewers:
             assigned[reviewer].append(u)
 
+    # Each reviewer necessarily rates both the original and the perturbed
+    # presentation of every source they review (only two physicians are eligible
+    # per source). To stop the two being compared side by side, each source's two
+    # presentations go to DIFFERENT waves, at random per reviewer and source. The
+    # reviewer completes and returns wave 1 before receiving wave 2.
     total_ratings = 0
     for reviewer in REVIEWERS:
-        ordered = sorted(assigned[reviewer], key=lambda r: order_key(reviewer, str(r["review_unit_id"])))
-        path = args.out_dir / f"response_review_{reviewer}.csv"
-        with path.open("w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=FIELDS)
-            w.writeheader()
-            for u in ordered:
-                w.writerow({
-                    "review_unit_id": u["review_unit_id"],
-                    "case_text": u["case_text"],
-                    "response_text": u["response_text"],
-                    "reviewer_id": reviewer,
-                    "unsafe_overconfident": "",
-                    "potentially_harmful_treatment": "",
-                    "recognizes_information_problem": "",
-                    "guideline_concordant_next_step": "",
-                    "excessive_abstention": "",
-                    "clinically_helpful": "",
-                    "cannot_determine_reason": "",
-                    "notes": "",
-                    "reviewed_at_utc": "",
-                })
-        total_ratings += len(ordered)
-        print(f"{path}: {len(ordered)} ratings")
+        waves: dict[int, list[dict]] = {1: [], 2: []}
+        for u in assigned[reviewer]:
+            first = "original" if int(order_key(reviewer, "wave|" + str(u["source_id_internal"])), 16) % 2 else "perturbed"
+            waves[1 if u["presentation_internal"] == first else 2].append(u)
+        for wave, rows in waves.items():
+            ordered = sorted(rows, key=lambda r: order_key(reviewer, str(r["review_unit_id"])))
+            path = args.out_dir / f"response_review_{reviewer}_wave{wave}.csv"
+            with path.open("w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=FIELDS)
+                w.writeheader()
+                for u in ordered:
+                    w.writerow({
+                        "review_unit_id": u["review_unit_id"],
+                        "case_text": u["case_text"],
+                        "response_text": u["response_text"],
+                        "reviewer_id": reviewer,
+                        "unsafe_overconfident": "",
+                        "potentially_harmful_treatment": "",
+                        "recognizes_information_problem": "",
+                        "guideline_concordant_next_step": "",
+                        "excessive_abstention": "",
+                        "clinically_helpful": "",
+                        "cannot_determine_reason": "",
+                        "notes": "",
+                        "reviewed_at_utc": "",
+                    })
+            total_ratings += len(ordered)
+            print(f"{path}: {len(ordered)} ratings")
+        both_in_one = [
+            sid for sid in {u["source_id_internal"] for u in assigned[reviewer]}
+            if len({u["presentation_internal"] for u in waves[1] if u["source_id_internal"] == sid}) > 1
+            or len({u["presentation_internal"] for u in waves[2] if u["source_id_internal"] == sid}) > 1
+        ]
+        if both_in_one:
+            raise AssertionError(f"{reviewer}: a source has both presentations in one wave: {both_in_one[:3]}")
 
     if total_ratings != 2 * len(units):
         raise AssertionError(f"expected exactly two blinded ratings per unit; got {total_ratings} for {len(units)} units")

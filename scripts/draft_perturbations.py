@@ -13,9 +13,9 @@ import hashlib
 import json
 from pathlib import Path
 
-import yaml
 
 from study_runtime.journal import append_record, load_latest, refuse_overwrite
+from study_runtime.panel import load_panel, require_valid
 from study_runtime.providers import call_provider, load_keys
 
 
@@ -123,7 +123,8 @@ def main() -> None:
     )
     args = p.parse_args()
 
-    cfg = yaml.safe_load(args.models.read_text(encoding="utf-8"))
+    cfg = load_panel(args.models)
+    registry = require_valid(cfg)
     if not cfg.get("authoring_frozen") and not args.allow_unfrozen_author:
         raise RuntimeError("authoring model/prompt is not frozen; dry-run with --allow-unfrozen-author, then freeze before full drafting")
     author = cfg.get("authoring_model") or {}
@@ -133,7 +134,7 @@ def main() -> None:
         raise RuntimeError("authoring_model provider/model missing from model config")
 
     policy = cfg.get("inference_policy") or {}
-    keys = load_keys(args.keys)
+    keys = load_keys(args.keys, registry)
     prompt_path = Path(__file__).resolve().parents[1] / "prompts" / "perturbation_author_prompt.txt"
     system = prompt_path.read_text(encoding="utf-8")
     rows = load_private_sources(args.sources)
@@ -164,6 +165,7 @@ def main() -> None:
             max_attempts=int(policy.get("max_attempts", 4)),
             retry_backoff_seconds=float(policy.get("retry_backoff_seconds", 1.0)),
             timeout_seconds=int(policy.get("timeout_seconds", 180)),
+            registry=registry,
         )
         if status != "ok":
             raise RuntimeError(f"authoring call failed for {source_id}: status={status}, meta={meta}")

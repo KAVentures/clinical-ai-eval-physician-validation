@@ -194,9 +194,15 @@ def fill_responses(path: Path) -> None:
     for r in rows:
         r["unsafe_overconfident"] = physician_label(r["reviewer_id"], r["review_unit_id"], r["response_text"])
         for k, endpoint in enumerate(SECONDARY):
-            r[endpoint] = "NA" if (endpoint == "recognizes_information_problem"
-                                   and h("na", r["review_unit_id"]) % 2) else str(
-                h("secondary", endpoint, r["reviewer_id"], r["review_unit_id"]) % 10 < 3 + k)[0].replace("T", "1").replace("F", "0")
+            # Both reviewers see the same cell, so their labels share a basis and
+            # differ about 8% of the time per endpoint, as trained raters roughly do.
+            if endpoint == "recognizes_information_problem" and h("na", r["review_unit_id"]) % 2:
+                value = "NA"
+            else:
+                value = str(int(h("secondary", endpoint, r["review_unit_id"]) % 10 < 3 + k))
+                if h("disagree", endpoint, r["reviewer_id"], r["review_unit_id"]) % 25 < 1:
+                    value = str(1 - int(value))
+            r[endpoint] = value
         r["reviewed_at_utc"] = "2000-01-01T00:00:00Z"
     write_csv(path, rows)
 
@@ -204,10 +210,14 @@ def fill_responses(path: Path) -> None:
 def fill_consensus(path: Path) -> int:
     rows = read_csv(path)
     for r in rows:
-        if not r["response_text"].strip() or h("consensus", r["review_unit_id"]) % 20 == 0:
-            r["consensus_unsafe_overconfident"] = "CANNOT_DETERMINE"
-        else:
-            r["consensus_unsafe_overconfident"] = str(int(COMMIT_MARK in r["response_text"]))
+        needs = set(filter(None, r["needs_consensus"].split(";")))
+        if "unsafe_overconfident" in needs:
+            if not r["response_text"].strip() or h("consensus", r["review_unit_id"]) % 20 == 0:
+                r["consensus_unsafe_overconfident"] = "CANNOT_DETERMINE"
+            else:
+                r["consensus_unsafe_overconfident"] = str(int(COMMIT_MARK in r["response_text"]))
+        for endpoint in needs - {"unsafe_overconfident"}:
+            r[f"consensus_{endpoint}"] = r[f"{endpoint}_label_1"] if r[f"{endpoint}_label_1"] != "CANNOT_DETERMINE" else "0"
         r["consensus_rationale"] = "rehearsal"
         r["reviewed_at_utc"] = "2000-01-01T00:00:00Z"
     if rows:
@@ -265,7 +275,8 @@ def review_responses(vault: Path, tag: str) -> Path:
     out_dir = vault / "review" / "responses"
     run("scripts/make_response_packets.py", "--units", units_path, "--out-dir", out_dir)
     units = {u["review_unit_id"]: u for u in read_jsonl(units_path)}
-    packets = [out_dir / f"response_review_{r}.csv" for r in "ABC"]
+    packets = sorted(out_dir.glob("response_review_*_wave*.csv"))
+    check(len(packets) == 6, f"{tag}: each reviewer gets two waves")
     allowed = {"review_unit_id", "case_text", "response_text", "reviewer_id", "unsafe_overconfident",
                *SECONDARY, "cannot_determine_reason", "notes", "reviewed_at_utc"}
     leak_tokens = {"openai", "anthropic", "google", "xai", "gpt", "claude", "gemini", "grok",
@@ -274,6 +285,12 @@ def review_responses(vault: Path, tag: str) -> Path:
     for path in packets:
         rows = read_csv(path)
         seen += len(rows)
+        sources = {}
+        for r in rows:
+            u = units[r["review_unit_id"]]
+            sources.setdefault(u["source_id_internal"], set()).add(u["presentation_internal"])
+        if any(len(v) > 1 for v in sources.values()):
+            sys.exit(f"FAIL: {tag}: {path.name} puts both presentations of one source in a single wave")
         check(set(rows[0].keys()) == allowed, f"{tag}: {path.name} carries only whitelisted reviewer columns")
         for r in rows:
             u = units[r["review_unit_id"]]
@@ -285,6 +302,7 @@ def review_responses(vault: Path, tag: str) -> Path:
     check(seen == 2 * len(units), f"{tag}: {len(units)} cells -> exactly {seen} independent ratings, none by the construct reviewer")
     for path in packets:
         fill_responses(path)
+    print(f"     ok: {tag}: no wave contains both presentations of any source")
     reviews = [x for path in packets for x in ("--review", path)]
     consensus = out_dir / "response_consensus.csv"
     run("scripts/response_adjudication.py", "prepare", "--units", units_path, *reviews, "--out", consensus)
@@ -353,7 +371,29 @@ def full(work: Path) -> None:
     check(fam.count("missing_information") == 30 and fam.count("conflicting_evidence") == 30, "60 sources, 30 per family")
 
     step("Phase 6  endpoint smoke test, environment capture, preflight, study lock")
+    run("scripts/validate_panel.py", "--models", models)
+    run("scripts/list_models.py", "--models", models, expect_fail="Not offered to this key")
     run("scripts/smoke_test_providers.py", "--models", models, "--out", pub / "provider_smoke_test.csv")
+    # Pluggability: a panel that swaps two targets for models reached through a
+    # provider defined only in YAML (an OpenAI-compatible endpoint) must validate
+    # and answer through the same runtime, with no code change.
+    custom = yaml.safe_load(models.read_text(encoding="utf-8"))
+    custom["providers"] = {"example_compat": {"api": "openai_chat_completions",
+                                              "base_url": "https://compat.example.invalid/v1",
+                                              "api_key_env": "EXAMPLE_COMPAT_API_KEY"}}
+    custom["target_models"][2] = {"target_id": "vendor_x_model", "provider": "example_compat",
+                                  "model": "vendor-x/model-1", "vendor": "vendor_x",
+                                  "reasoning_effort": "high", "tools": "disabled"}
+    custom_panel = work / "panel_custom_provider.yaml"
+    custom_panel.write_text(yaml.safe_dump(custom), encoding="utf-8")
+    run("scripts/validate_panel.py", "--models", custom_panel)
+    run("scripts/smoke_test_providers.py", "--models", custom_panel, "--out", pub / "custom_smoke.csv")
+    check(any(r["provider"] == "example_compat" and r["status"] == "ok" for r in read_csv(pub / "custom_smoke.csv")),
+          "a provider defined only in the YAML panel is called through the same runtime")
+    custom["target_models"][3]["vendor"] = "vendor_x"
+    custom_panel.write_text(yaml.safe_dump(custom), encoding="utf-8")
+    run("scripts/validate_panel.py", "--models", custom_panel, expect_fail="target vendors repeat")
+    (pub / "custom_smoke.csv").unlink()
     run("scripts/capture_environment.py", "--requirements-out", pub / "environment_lock.txt",
         "--metadata-out", pub / "environment_metadata.json")
     manifests = ["--casepack-manifest", casepack_manifest, "--response-validation-manifest", selection]
@@ -474,9 +514,12 @@ def full(work: Path) -> None:
           "endpoints with no paired contrast are still reported per arm")
     miss = {r["endpoint"]: r for r in read_csv(results / "sap" / "physician_reference_missingness.csv")}
     check(len(miss) == 6 and int(miss["recognizes_information_problem"]["independent_either_na"]) > 0
-          and all(int(r["binary_resolved"]) + int(r["cannot_determine"]) + int(r["unresolved_other"]) == 480
-                  for r in miss.values()),
-          "every endpoint's 480 cells are accounted for; the label NA survives the CSV round trip")
+          and all(int(r["binary_resolved"]) + int(r["not_applicable"]) + int(r["cannot_determine"]) == 480
+                  and int(r["unresolved_other"]) == 0 for r in miss.values())
+          and all(int(r["consensus_used"]) > 0 for r in miss.values()),
+          "every endpoint's 480 cells are resolved by consensus or agreement; NA survives the CSV round trip")
+    check((results / "sap" / "physician_target_robustness_agreement_only.csv").stat().st_size > 10,
+          "agreement-only sensitivity analysis is produced alongside the consensus-based estimates")
     check(all(r["data_provenance"] == "SIMULATED_REHEARSAL_NOT_RESULTS" for r in jv)
           and (results / "sap" / "SIMULATED_REHEARSAL_NOT_RESULTS.txt").exists(),
           "analysis outputs built on simulated calls label themselves as such")

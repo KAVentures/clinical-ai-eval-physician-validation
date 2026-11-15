@@ -28,18 +28,21 @@ def _h(*parts: str) -> int:
 
 
 def _split_request(url: str, payload: dict) -> tuple[str, str, str, str]:
-    """Return (provider, model, system, user) from a provider-shaped request."""
-    if "api.anthropic.com" in url:
+    """Return (api style, model, system, user) from a request, keyed on its shape
+    rather than its host, so providers added in the panel are simulated too."""
+    if url.endswith("/chat/completions"):
+        msgs = payload["messages"]
+        return "chat", payload["model"], msgs[0]["content"], msgs[1]["content"]
+    if url.endswith("/messages"):
         return "anthropic", payload["model"], payload["system"], payload["messages"][0]["content"]
-    if "generativelanguage.googleapis.com" in url:
+    if ":generateContent" in url:
         model = url.rsplit("/models/", 1)[1].split(":", 1)[0]
         return (
             "google", model,
             payload["systemInstruction"]["parts"][0]["text"],
             payload["contents"][0]["parts"][0]["text"],
         )
-    provider = "xai" if "api.x.ai" in url else "openai"
-    return provider, payload["model"], payload["input"][0]["content"], payload["input"][1]["content"]
+    return "responses", payload["model"], payload["input"][0]["content"], payload["input"][1]["content"]
 
 
 def _wrap(provider: str, model: str, text: str, *, truncated: bool = False) -> dict:
@@ -58,6 +61,13 @@ def _wrap(provider: str, model: str, text: str, *, truncated: bool = False) -> d
                 "finishReason": "MAX_TOKENS" if truncated else "STOP",
             }],
             "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1},
+        }
+    if provider == "chat":
+        return {
+            "model": model + "-sim",
+            "choices": [{"message": {"role": "assistant", "content": text},
+                         "finish_reason": "length" if truncated else "stop"}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
         }
     body = {
         "model": model + "-sim",
@@ -133,7 +143,16 @@ def _judge(user: str) -> str:
     })
 
 
-def simulated_http(url: str, headers: dict, payload: dict) -> tuple[int, dict]:
+SIMULATED_MODEL_IDS = ["sim-model-a", "sim-model-b"]
+
+
+def simulated_http(url: str, headers: dict, payload: dict | None) -> tuple[int, dict]:
+    if payload is None:                                   # GET .../models
+        if url.split("?", 1)[0].endswith("/models"):
+            if ":generateContent" in url or "googleapis" in url:
+                return 200, {"models": [{"name": f"models/{m}"} for m in SIMULATED_MODEL_IDS]}
+            return 200, {"data": [{"id": m} for m in SIMULATED_MODEL_IDS]}
+        return 404, {"error": "simulated: unknown GET"}
     provider, model, system, user = _split_request(url, payload)
     key = hashlib.sha256(json.dumps([url, payload], sort_keys=True).encode()).hexdigest()
     _attempts[key] = _attempts.get(key, 0) + 1

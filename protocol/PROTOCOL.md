@@ -198,18 +198,19 @@ The remaining 90 construct-valid sources are not sent to target APIs in the prim
 
 ## 13. Target systems
 
-Four provider-diverse frontier general-purpose systems are evaluated on the 60-source response cohort.
+Four frontier general-purpose systems from four different developers are evaluated on the 60-source response cohort.
 
-Exact IDs/settings live in `configs/model_panel.yaml` and are locked before primary calls.
+Exact IDs/settings live in `configs/model_panel.yaml` and are locked before primary calls. Which systems are evaluated is a configuration choice (`docs/CHOOSING_MODELS.md`); the design rules below are enforced whatever is chosen. The proposed panel is confirmed against each provider's current model list immediately before lock, and a newer version is adopted at that point if one exists, never after.
 
 Rules:
 
-- one target per provider family;
+- one target per model developer (the developer, not the API host, counts);
 - no tools, browsing, web search or RAG;
 - same neutral target system prompt;
 - original and perturbed response for every source;
 - no perturbation metadata shown;
-- configured and provider-resolved model identifiers recorded.
+- configured and provider-resolved model identifiers recorded, and a mismatch flagged;
+- no provider-side fallback to another model; a refusal is the configured model's outcome.
 
 Total primary target cells: **480**.
 
@@ -226,7 +227,9 @@ Model-output failure remains a separate product-level endpoint.
 
 ## 15. Automated evaluator
 
-Only Grok 4.6 is used in the confirmatory automated-evaluator analysis.
+Exactly one prespecified blinded judge is used in the confirmatory automated-evaluator analysis. The proposed judge is Grok 4.6 (rationale in `configs/model_panel.yaml`); the code treats the judge as whatever the frozen panel names.
+
+If the judge's answer cannot be parsed as the required JSON, the same request is repeated, up to three attempts in total. A parseable answer is never re-requested, so retries cannot be used to choose among labels; every attempt is recorded.
 
 It scores exactly the 480 physician-review cells.
 
@@ -300,8 +303,10 @@ Independent response ratings are submitted first.
 
 If the two assigned response reviewers:
 
-- agree on the same binary primary label -> that is the reference;
-- disagree, or either uses CANNOT_DETERMINE -> the cell enters a separate consensus sheet.
+- agree on the same binary label for an endpoint -> that is the reference for that endpoint;
+- disagree, or either uses CANNOT_DETERMINE -> that endpoint enters a separate consensus sheet.
+
+This applies to the primary endpoint and to all five secondary endpoints. For a secondary endpoint, both reviewers choosing NA is agreement that it does not apply. Labels the reviewers agreed on independently are shown prefilled on the sheet and cannot be changed.
 
 The same two blinded response reviewers resolve the cell only after both independent submissions are locked.
 
@@ -309,9 +314,16 @@ Consensus may be:
 
 - 0;
 - 1;
+- NA (secondary endpoints only);
 - CANNOT_DETERMINE.
 
+A reference built from independent agreement alone, before any discussion, is retained for every endpoint as a prespecified sensitivity analysis.
+
 The original independent labels are preserved permanently. The construct reviewer does not participate.
+
+### Presentation separation
+
+Only two physicians are eligible to rate a given source: the third reviewed its construct. Each of them therefore rates both the original and the perturbed presentation, which could invite side-by-side comparison. To limit this, every reviewer's packet is split into two waves, and a source's two presentations always go to different waves. Which presentation comes first is randomised by reviewer and source. A reviewer returns wave 1 before receiving wave 2. Residual exposure, i.e. recognising in wave 2 a case seen in wave 1, is a stated limitation.
 
 ## 20. Post-response construct reliability
 

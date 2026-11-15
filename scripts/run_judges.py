@@ -17,12 +17,12 @@ import hashlib
 import json
 from pathlib import Path
 
-import yaml
 
 from caeval.score import parse_judge_json
 from study_runtime.journal import append_record, compact, load_latest, refuse_overwrite
 from study_runtime.lock import require_lock
-from study_runtime.providers import call_provider, load_keys
+from study_runtime.panel import load_panel, require_valid
+from study_runtime.providers import call_provider, entry_vendor, load_keys
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -65,7 +65,8 @@ def main() -> None:
     p.add_argument("--rehearsal", action="store_true", help="Accept a rehearsal lock (offline rehearsal only)")
     args = p.parse_args()
 
-    cfg = yaml.safe_load(args.models.read_text(encoding="utf-8"))
+    cfg = load_panel(args.models)
+    registry = require_valid(cfg)
     if not cfg.get("frozen"):
         raise RuntimeError("model/judge configuration must be frozen before judge execution")
 
@@ -76,8 +77,10 @@ def main() -> None:
     judge = judges[0]
     if judge.get("mode", "blinded") != "blinded":
         raise RuntimeError("primary automated judge must be blinded")
-    if str(judge.get("provider")) != "xai" or str(judge.get("model")) != "grok-4.6":
-        raise RuntimeError("locked design expects xAI Grok 4.6 as the primary automated judge")
+    # The judge is whatever the frozen panel names; the study lock guarantees it
+    # cannot change after lock.
+    judge_vendor = entry_vendor(judge, registry)
+    print(f"Primary judge: {judge['judge_id']} = {judge['provider']}/{judge['model']} (developer {judge_vendor})")
 
     units = read_jsonl(args.units)
     expected = int((cfg.get("automated_judge_selection") or {}).get("expected_primary_cells", 480))
@@ -85,7 +88,8 @@ def main() -> None:
         raise RuntimeError(f"judge input must be exactly {expected} unique physician-calibration cells")
 
     policy = cfg.get("inference_policy") or {}
-    keys = load_keys(args.keys)
+    keys = load_keys(args.keys, registry)
+    format_attempts = max(1, int(policy.get("judge_format_attempts", 1)))
     system = (Path(__file__).resolve().parents[1] / "prompts" / "judge_prompt.txt").read_text(encoding="utf-8")
 
     private_out = args.vault / "judges" / "judge_scores.private.jsonl"
@@ -112,9 +116,10 @@ def main() -> None:
                 "primary_family": u["primary_family_internal"],
                 "target_id": u["target_id_internal"],
                 "target_provider": u.get("target_provider_internal", ""),
-                "same_provider_target_judge": bool(u.get("target_provider_internal") == judge["provider"]),
+                "same_provider_target_judge": bool(u.get("target_provider_internal") == judge_vendor),
                 "judge_id": judge["judge_id"],
-                "judge_provider": judge["provider"],
+                "judge_provider": judge_vendor,
+            "judge_api_provider": judge["provider"],
                 "judge_model": judge["model"],
                 "judge_mode": "blinded",
                 "judge_reasoning_effort": judge.get("reasoning_effort", "provider_default"),
@@ -127,30 +132,40 @@ def main() -> None:
             print(eid, "not_scored_target_output_failure")
             continue
 
-        text, api_status, meta = call_provider(
-            judge["provider"],
-            judge["model"],
-            system,
-            judge_user(str(u["case_text"]), str(u["response_text"])),
-            keys,
-            reasoning_effort=str(judge.get("reasoning_effort", "provider_default")),
-            max_output_tokens=int(policy.get("judge_max_output_tokens", 12000)),
-            max_attempts=int(policy.get("max_attempts", 4)),
-            retry_backoff_seconds=float(policy.get("retry_backoff_seconds", 1.0)),
-            timeout_seconds=int(policy.get("timeout_seconds", 600)),
-        )
-
-        score = None
-        parse_error = ""
-        if api_status != "ok":
-            status = "judge_" + api_status
-        else:
+        # A format retry re-asks ONLY when the previous answer could not be parsed.
+        # A parseable answer is never discarded, so retrying cannot steer labels; it
+        # only reduces missing measurements. Every attempt is recorded.
+        score, status, parse_error, meta = None, "", "", {}
+        attempt_log = []
+        for format_attempt in range(1, format_attempts + 1):
+            text, api_status, meta = call_provider(
+                judge["provider"],
+                judge["model"],
+                system,
+                judge_user(str(u["case_text"]), str(u["response_text"])),
+                keys,
+                reasoning_effort=str(judge.get("reasoning_effort", "provider_default")),
+                max_output_tokens=int(policy.get("judge_max_output_tokens", 12000)),
+                max_attempts=int(policy.get("max_attempts", 4)),
+                retry_backoff_seconds=float(policy.get("retry_backoff_seconds", 1.0)),
+                timeout_seconds=int(policy.get("timeout_seconds", 600)),
+                registry=registry,
+            )
+            if api_status != "ok":
+                status, parse_error = "judge_" + api_status, ""
+                attempt_log.append({"format_attempt": format_attempt, "status": status})
+                break
             try:
                 score = parse_judge_json(text)
-                status = "ok"
+                status, parse_error = "ok", ""
+                attempt_log.append({"format_attempt": format_attempt, "status": "ok"})
+                break
             except Exception as exc:
-                status = "judge_parse_failure"
-                parse_error = repr(exc)[:1000]
+                status, parse_error = "judge_parse_failure", repr(exc)[:1000]
+                attempt_log.append({"format_attempt": format_attempt, "status": status,
+                                    "parse_error": parse_error,
+                                    "output_sha256": hashlib.sha256(text.encode()).hexdigest()})
+        meta = {**(meta or {}), "format_attempts": attempt_log}
 
         records[eid] = {
             "judge_evaluation_id": eid,
@@ -162,9 +177,10 @@ def main() -> None:
             "primary_family": u["primary_family_internal"],
             "target_id": u["target_id_internal"],
             "target_provider": u.get("target_provider_internal", ""),
-            "same_provider_target_judge": bool(u.get("target_provider_internal") == judge["provider"]),
+            "same_provider_target_judge": bool(u.get("target_provider_internal") == judge_vendor),
             "judge_id": judge["judge_id"],
-            "judge_provider": judge["provider"],
+            "judge_provider": judge_vendor,
+            "judge_api_provider": judge["provider"],
             "judge_model": judge["model"],
             "judge_mode": "blinded",
             "judge_reasoning_effort": judge.get("reasoning_effort", "provider_default"),

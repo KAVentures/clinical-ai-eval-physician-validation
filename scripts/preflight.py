@@ -7,10 +7,10 @@ import csv
 import json
 from pathlib import Path
 
-import yaml
 
 from study_runtime.lock import require_lock
-from study_runtime.providers import KEY_NAMES, SIMULATED_ENV, load_keys, simulated_transport_enabled
+from study_runtime.panel import key_envs, load_panel, validate_panel
+from study_runtime.providers import SIMULATED_ENV, load_keys, provider_registry, simulated_transport_enabled
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -27,26 +27,21 @@ def read_csv(path: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def require_keys(providers: set[str], key_path: Path | None) -> None:
+def require_keys(cfg: dict, role_prefixes: tuple[str, ...], key_path: Path | None) -> None:
     if simulated_transport_enabled():
         return
-    keys = load_keys(key_path)
-    missing = [KEY_NAMES[p] for p in sorted(providers) if not keys.get(KEY_NAMES[p])]
+    keys = load_keys(key_path, provider_registry(cfg))
+    missing = sorted(env for env in key_envs(cfg, role_prefixes) if not keys.get(env))
     if missing:
         raise RuntimeError("missing required API credentials: " + ", ".join(missing))
 
 
 def check_config(cfg: dict) -> None:
-    targets = cfg.get("target_models") or []
-    judges = cfg.get("primary_judges") or []
-    if len(targets) != 4 or len({x["provider"] for x in targets}) != 4:
-        raise RuntimeError("need four targets from four distinct providers")
-    if len(judges) != 1:
-        raise RuntimeError("confirmatory study requires exactly one primary automated judge")
-    if judges[0].get("provider") != "xai" or judges[0].get("model") != "grok-4.6":
-        raise RuntimeError("primary automated judge must be xAI Grok 4.6")
-    if any(x.get("mode") != "blinded" for x in judges):
-        raise RuntimeError("all primary judges must be blinded")
+    errors, warnings = validate_panel(cfg)
+    for w in warnings:
+        print(f"WARNING: {w}")
+    if errors:
+        raise RuntimeError("invalid model panel:" + "".join(f"\n  - {e}" for e in errors))
     if cfg.get("inference_policy", {}).get("tools") != "disabled":
         raise RuntimeError("tools must be disabled for the locked primary study")
 
@@ -67,7 +62,7 @@ def main() -> None:
                    help="Accept synthetic sources and simulated provider calls (offline rehearsal only)")
     args = p.parse_args()
 
-    cfg = yaml.safe_load(args.models.read_text(encoding="utf-8"))
+    cfg = load_panel(args.models)
     check_config(cfg)
     if not args.rehearsal:
         if simulated_transport_enabled():
@@ -85,7 +80,7 @@ def main() -> None:
             raise RuntimeError(f"rehearsal artifacts found where study data is expected: {tainted}")
 
     if args.phase == "authoring":
-        require_keys({cfg["authoring_model"]["provider"]}, args.keys)
+        require_keys(cfg, ("author",), args.keys)
         if cfg.get("authoring_frozen") is not True:
             raise RuntimeError("authoring_frozen is false; only technical limited dry-runs are allowed")
         print("PASS authoring preflight")
@@ -94,9 +89,9 @@ def main() -> None:
     if cfg.get("frozen") is not True:
         raise RuntimeError("model panel is not frozen")
     if args.phase == "targets":
-        require_keys({x["provider"] for x in cfg.get("target_models", [])}, args.keys)
+        require_keys(cfg, ("target:",), args.keys)
     elif args.phase == "judges":
-        require_keys({x["provider"] for x in cfg.get("primary_judges", [])}, args.keys)
+        require_keys(cfg, ("judge:",), args.keys)
 
     case_rows = read_csv(args.casepack_manifest)
     if len(case_rows) != 150:

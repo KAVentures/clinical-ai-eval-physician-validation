@@ -95,11 +95,15 @@ Before submitting your independent response packet:
 - do not use an LLM to generate your physician label;
 - record genuine ambiguities briefly in notes.
 
-## Consensus for non-resolved primary labels
+## Two waves
 
-After all independent response packets are locked, the study script generates a consensus sheet containing only cells where the two blinded reviewers disagreed or one used CANNOT_DETERMINE.
+Your packet comes in two files, `wave1` and `wave2`. Complete and return wave 1 before you open wave 2. The same case may appear in both waves with different details; rate each response on the case exactly as it is shown in that row.
 
-The same two response reviewers then discuss that cell and record 0, 1, or CANNOT_DETERMINE with a short rationale.
+## Consensus
+
+After all independent response packets are locked, the study script generates a consensus sheet containing only the cells where you and the other reviewer disagreed on at least one endpoint, or either of you used CANNOT_DETERMINE.
+
+The sheet shows both of your locked labels for every endpoint. Endpoints you already agreed on are prefilled and cannot be changed. Discuss the remaining ones together and record 0, 1, NA (secondary endpoints only) or CANNOT_DETERMINE, with a short rationale.
 
 Consensus does not erase the two original independent labels. If consensus remains CANNOT_DETERMINE, the cell is excluded from binary sensitivity/specificity denominators and its frequency is reported.
 

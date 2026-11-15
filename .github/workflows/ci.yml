@@ -26,7 +26,7 @@ jobs:
           tracked="$(git ls-files)"
           forbidden="$(
             printf '%s\n' "$tracked" \
-              | grep -E '(^|/)(vault|private)/|\.private\.|(^|/)API_KEYS\.local\.md$|(^|/)\.env($|\.)|construct_review_[ABC].*\.csv$|response_review_[ABC]\.csv$|response_consensus\.csv$' \
+              | grep -E '(^|/)(vault|private)/|\.private\.|(^|/)API_KEYS\.local\.md$|(^|/)\.env($|\.)|construct_review_[ABC].*\.csv$|response_review_[ABC][^/]*\.csv$|response_consensus\.csv$' \
               | grep -vE '(^|/)\.env\.example$' || true
           )"
           if [ -n "$forbidden" ]; then
@@ -44,6 +44,9 @@ jobs:
           grep -q 'HBP_SHA256' scripts/select_cases.py
           grep -q 'REAL_POCQI_SHA256' scripts/select_cases.py
           grep -q 'REAL_POCQI_REVISION' scripts/select_cases.py
+
+      - name: Check the model panel offline
+        run: python scripts/validate_panel.py
 
       - name: Run study-specific tests
         run: pytest -q

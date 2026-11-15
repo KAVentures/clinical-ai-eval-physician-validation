@@ -143,7 +143,7 @@ Follow `RUNBOOK.md` in order. The high-level immutable sequence is:
 11. create/commit `data/study_lock.json`;
 12. run 480 target cells (60 × 2 presentations × 4 targets);
 13. create 480 cross-fitted physician review cells;
-14. run Grok 4.6 on exactly those same 480 cells;
+14. run the prespecified judge on exactly those same 480 cells;
 15. lock independent physician submissions and consensus;
 16. run the preregistered analyses;
 17. perform the post-response construct-reliability audit;

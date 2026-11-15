@@ -1,5 +1,11 @@
-# September 2026 execution configuration.
-# Exact model IDs must be dry-run against live provider APIs immediately before lock.
+# THE ONE PLACE THE STUDY'S MODELS ARE CHOSEN. Change a model by editing its
+# `provider` / `model` / `reasoning_effort` here; no code changes are needed.
+# Full guide: docs/CHOOSING_MODELS.md. After any edit:
+#   python scripts/validate_panel.py    # offline, free
+#   python scripts/list_models.py       # free: is each ID offered to your key?
+#   python scripts/smoke_test_providers.py   # one tiny paid call per model
+# Model IDs below are the proposed panel; confirm each with list_models.py
+# immediately before freezing, and switch to a newer ID there if one exists.
 #
 # The study validates Clinical-AI-Eval's scoped clinician-facing measurement layer.
 # Target models are test subjects. Physicians are the clinical reference.
@@ -13,6 +19,40 @@ authoring_frozen: false
 frozen: false
 verified_on: "2026-09-04"
 
+# Built-in providers: openai, anthropic, google, xai. Define any other provider
+# here and refer to it by name below. `api` is one of:
+#   openai_responses | anthropic_messages | google_generate_content | openai_chat_completions
+# openai_chat_completions covers any OpenAI-compatible server (DeepSeek, Mistral,
+# OpenRouter, Together, Fireworks, a gateway, or a local vLLM/Ollama server).
+# `vendor` is the model's developer; it drives the same-developer judge audit and
+# the distinct-developer rule for targets (an aggregator is not a developer).
+providers: {}
+#  deepseek:
+#    api: openai_chat_completions
+#    base_url: https://api.deepseek.com/v1
+#    api_key_env: DEEPSEEK_API_KEY
+#    vendor: deepseek
+#  local_vllm:                      # open-weight judge for a sensitivity analysis
+#    api: openai_chat_completions
+#    base_url: http://localhost:8000/v1
+#    api_key_env: null              # no key
+#    effort_param: null             # server takes no reasoning_effort field
+#    vendor: open_weight
+#  openrouter:
+#    api: openai_chat_completions
+#    base_url: https://openrouter.ai/api/v1
+#    api_key_env: OPENROUTER_API_KEY
+#    # set `vendor:` on each model entry routed through it
+# A built-in can be overridden field by field, e.g. a regional base_url:
+#  anthropic:
+#    base_url: https://my-gateway.example.org/anthropic/v1
+
+# Shape of the design. The scripts enforce these, whatever models are chosen.
+design:
+  target_count: 4
+  distinct_target_vendors: true
+  primary_judge_count: 1
+
 authoring_model:
   provider: openai
   model: gpt-5.6-luna
@@ -25,10 +65,10 @@ target_models:
     model: gpt-5.6-sol
     reasoning_effort: medium
     tools: disabled
-  - target_id: anthropic_opus5
+  - target_id: anthropic_opus55
     provider: anthropic
-    model: claude-opus-5
-    reasoning_effort: high
+    model: claude-opus-5-5         # current Opus (succeeds claude-opus-5)
+    reasoning_effort: high         # set explicitly: Opus 5.5 defaults to medium
     tools: disabled
   - target_id: google_gemini31pro
     provider: google
@@ -85,13 +125,16 @@ inference_policy:
   author_max_output_tokens: 16000
   target_max_output_tokens: 16000
   judge_max_output_tokens: 12000
-  judge_format_attempts: 1
+  judge_format_attempts: 3
   note: >-
     OpenAI and xAI use their Responses APIs; Anthropic uses Messages; Google uses
     generateContent. Reasoning effort is passed exactly where independently
     verified. Gemini 3.1 Pro uses explicit thinkingLevel=high. Every call records a
     request hash, configured and provider-resolved model, endpoint, HTTP status,
-    attempt count, timing, and usage. Output caps are deliberately generous because
-    reasoning tokens count toward some providers' output limits. Judge parse failure
-    is recorded after one scoring attempt rather than triggering a fresh re-judgment.
-    No web/search/tools are enabled.
+    attempt count, finish reason, timing, and usage. Output caps are deliberately
+    generous because reasoning tokens count toward some providers' output limits.
+    A judge answer that cannot be parsed is re-asked up to judge_format_attempts
+    times in total; a parseable answer is never re-asked, so retries reduce missing
+    measurements without letting anyone pick among labels. No provider-side model
+    fallback is requested: a refusal is the configured model's outcome. No
+    web/search/tools are enabled.
