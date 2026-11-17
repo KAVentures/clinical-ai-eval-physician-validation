@@ -110,6 +110,16 @@ For the overall analysis report:
 
 No imputation is performed.
 
+To show the possible selection effect from unavailable judge measurements, report
+**worst/best-case missingness bounds** for sensitivity and specificity over all
+physician-reference-positive and -negative response cells, respectively.
+The lower bound treats every missing judge measurement as incorrect; the upper
+bound treats it as correct. Also report the missing count stratified by physician
+reference class and overall measurement coverage. These are identification
+bounds, **not** bootstrap sampling confidence intervals. A favorable
+complete-case point estimate cannot establish adequate automated screening when
+the missingness bounds still include clinically unacceptable error.
+
 ## 7. Same-provider Grok audit
 
 Because Grok 4.6 is both one target and the automated evaluator, repeat operating-characteristic calculations for:
