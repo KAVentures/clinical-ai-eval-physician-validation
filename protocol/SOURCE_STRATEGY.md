@@ -1,24 +1,24 @@
 # Source and case-selection strategy
 
-Version: draft v0.1, 2026-09-03
+Version: draft v0.2, 2026-09-04
 
 ## Scientific principle
 
-Cases are selected for **construct suitability before any target-model output is observed**. A source case is valuable here only if a clinically meaningful decision is present and a controlled perturbation can change the evidentiary state without changing the patient, task, or decision timepoint.
+Cases are selected for **construct suitability before any target-model output is observed**. A source case is useful here only if it contains a clinically meaningful decision and supports a controlled perturbation that changes the evidentiary state without changing the patient, clinical task, or decision timepoint.
 
-No source case may enter or leave the confirmatory cohort because a target model performed well or badly on it.
+No source case may enter or leave a confirmatory cohort because a target model performed well or badly on it.
 
 ## Primary source: HealthBench Professional
 
 Dataset: `openai/healthbench-professional`.
 
-Pinned retrieval information is defined in `scripts/select_cases.py` and must be recorded in the frozen study manifest. The script verifies the expected file digest before parsing.
+The exact source revision and file SHA-256 are hard-pinned in `scripts/select_cases.py`. Retrieval fails closed if the file digest or expected counts change.
 
 ### Eligible source pool
 
 Only `use_case == consult` examples are eligible for the primary cohort.
 
-The released care-consult pool contains 236 examples in three source strata used here:
+The released care-consult pool used here contains 236 examples in three source strata:
 
 | source stratum | reservoir | final validated quota |
 |---|---:|---:|
@@ -27,50 +27,71 @@ The released care-consult pool contains 236 examples in three source strata used
 | red_teaming / difficult | 93 | 59 |
 | total | 236 | 150 |
 
-Within each stratum, every source ID receives a deterministic SHA-256 priority based on the locked study seed. Physicians review in that order until the validated quota is filled.
+Within each stratum, every source ID receives a deterministic SHA-256 priority based on the frozen study seed. Review proceeds in that order until the validated quota is filled.
 
-This means failed construct-validation cases are replaced only by the next prespecified candidate in the same stratum, never by investigator preference after model results are seen.
+A rejected source can only be replaced by the next prespecified source in the same stratum before target-model execution.
 
-### Clinical suitability screen
+### Stable source rendering
 
-A source case proceeds to perturbation drafting only if the study team can identify:
+HealthBench Professional conversations are converted to one deterministic role-labelled text rendering for this study.
 
-1. a concrete clinical decision or recommendation;
-2. the decision timepoint represented by the prompt;
-3. at least one piece of information whose status could plausibly change what a safe response should do;
-4. a transformation that leaves the patient and clinical question materially unchanged.
+The same rendering convention is used for original and perturbed presentations.
 
-Examples that are essentially literature-search, prevalence, mechanism, trial-identification, or general educational questions are excluded even if metadata labels them as consultation.
+This is a controlled study representation and **not** an official HealthBench Professional scoring protocol. Native conversational delivery is not claimed.
+
+### Clinical suitability
+
+A source must support all of the following:
+
+1. a concrete clinical decision, assessment, disposition, treatment, dose, or recommendation;
+2. an identifiable decision timepoint;
+3. at least one fact or evidence relationship whose status could change what can safely be concluded;
+4. a transformation that leaves the patient and clinical task materially unchanged;
+5. at least one safe response strategy after perturbation.
+
+Examples that are essentially literature searches, prevalence questions, mechanisms, trial identification, or general education are excluded even if metadata labels them as consultation.
 
 ### Public-data rule
 
-HealthBench Professional examples, physician responses, rubrics, and derived transformed text are not copied into the public repository. Public artifacts contain source IDs, source metadata, source-file revision/digest, content hashes, validation status, and aggregate results only.
+HealthBench Professional examples, physician responses, rubrics, source-derived transformed text, and target responses are not copied into the public repository.
+
+Public artifacts may contain source IDs, source metadata, source-file revision/digest, content hashes, validation status, model/judge provenance, de-identified labels where release is appropriate, and aggregate results.
 
 ## Secondary source: Real-POCQi
 
 Dataset: `jjfenglab/Real-POCQi`.
 
-The study uses Real-POCQi only as an external replication cohort. The source contains real physician point-of-care questions, but many questions are factual/research queries rather than patient-specific decisions.
+The study uses Real-POCQi only as an external replication cohort.
 
-`scripts/select_cases.py` therefore applies a **pre-model, reproducible lexical screen** to produce a broad candidate reservoir requiring both:
+The exact `questions.parquet` revision and SHA-256 are pinned in `scripts/select_cases.py`; the source currently contains 620 point-of-care physician questions.
+
+### Candidate filter
+
+Many Real-POCQi questions are factual/research questions rather than patient-specific clinical decisions.
+
+The source selector therefore applies a permissive prespecified lexical filter requiring both:
 
 - patient/context signals; and
 - decision/management signals.
 
-Obvious prevalence/trial/research-style question openings are excluded by the lexical screen.
+Obvious prevalence, trial-identification, and research-style openings are excluded.
 
-The lexical screen is deliberately permissive. It is not a clinical classifier and cannot confer eligibility. Physicians apply the same construct-validity criteria as for HealthBench Professional. The first 50 physician-valid cases in deterministic priority order form the external cohort.
+This filter is only a reproducible candidate screen. It cannot confer clinical eligibility.
+
+The first 50 construct-valid sources in deterministic candidate order form the external replication cohort.
 
 ## Perturbation drafting
 
-For each eligible source case, the drafting stage may propose:
+For each candidate source, the drafting stage may propose:
 
 - one `missing_information` variant;
 - one `conflicting_evidence` variant.
 
-A draft generator may be an LLM-assisted authoring tool, but its output has **zero evidentiary status**. Every retained perturbation requires independent physician validation.
+The authoring model is a case-construction tool only. Its output has **zero evidentiary status**.
 
-To reduce shared-model circularity, the model used to author perturbation drafts must not be one of the primary automated judges. Preferably it is also not one of the primary target models. If unavoidable, this overlap is declared and a sensitivity analysis excludes that model family where relevant.
+The authoring model, prompt, provider interface, and reasoning setting are technically dry-run and then frozen before the full draft reservoir is generated.
+
+The authoring model is not a primary automated judge. Provider-family overlap with a target model is declared rather than hidden.
 
 ## Missing-information drafting rules
 
@@ -79,7 +100,7 @@ A permissible draft removes only the minimum clinically load-bearing fact or com
 Preferred removable domains include:
 
 - renal/hepatic function relevant to treatment;
-- pregnancy/reproductive status when decision-relevant;
+- pregnancy/reproductive status;
 - allergy/intolerance;
 - anticoagulation or interacting medication;
 - key vital sign or physiological instability;
@@ -89,7 +110,7 @@ Preferred removable domains include:
 - symptom timing/duration;
 - red-flag history feature.
 
-Do not remove background facts merely to make the case shorter. Do not create impossible or obviously incomplete prose. Do not insert experiment markers such as `[removed]`.
+Do not remove background facts merely to make the case shorter. Do not create obviously broken prose. Do not insert experiment markers such as `[removed]`.
 
 ## Conflicting-evidence drafting rules
 
@@ -97,42 +118,68 @@ A permissible draft creates or preserves two clinically plausible, decision-rele
 
 Preferred conflict classes include:
 
-- current vs prior laboratory trend;
-- symptoms/exam vs imaging;
-- medication/allergy/history vs proposed treatment;
+- current versus prior laboratory trend;
+- symptoms/examination versus imaging;
+- medication/allergy/history versus proposed treatment;
 - discordant diagnostic tests;
-- clinically reassuring context vs a high-risk objective measurement;
-- competing source records describing the same decision-relevant fact.
+- clinically reassuring context versus a high-risk objective measurement;
+- competing records describing the same decision-relevant fact.
 
-The conflict may not change the underlying patient identity, action menu, clinical task, or decision timepoint.
+The conflict may not change patient identity, action semantics, clinical task, or decision timepoint.
 
-## Physician construct validation
+## Cross-fitted construct validation
 
-Reviewers A and B independently validate each proposed variant. A case/variant is valid only if all six checks in `PROTOCOL.md` are YES after adjudication.
+The study uses three physicians A/B/C.
 
-A material correction to a draft creates a new immutable perturbation version and invalidates prior signatures/labels for that version.
+For each source, a deterministic hash assigns **one construct reviewer**. The two physicians who were not shown that source's original/perturbed pair are reserved as the blinded response reviewers for that source.
+
+The construct reviewer evaluates six criteria defined in `PROTOCOL.md`:
+
+1. original coherence;
+2. perturbed coherence;
+3. same patient/task/timepoint;
+4. load-bearingness;
+5. intended construct achieved;
+6. safe response definable.
+
+All six must be YES and the decision must be `valid`.
+
+This one-reviewer construct design is a deliberate trade-off that preserves two independent response reviewers with only three physicians.
+
+A separate 30-case second-physician construct reliability audit occurs **after primary response labels are locked**, so it cannot contaminate response blinding.
+
+## Revision and fallback
+
+A material change creates a new immutable perturbation version using `scripts/revise_perturbation.py`. Prior labels do not transfer to the new version.
+
+If a first-choice perturbation is rejected, `scripts/make_construct_packets.py --mode fallback` exposes only a deterministic previously unreviewed alternative for unresolved sources.
+
+Fallback review occurs before target outputs exist.
 
 ## Primary perturbation assignment
 
-A source case may have zero, one, or two valid perturbations.
+A source may have zero, one, or two construct-valid perturbation families.
 
-- zero valid perturbations -> source case excluded;
-- one valid perturbation -> that family is primary;
-- two valid perturbations -> deterministic assignment based on source ID and study seed, with balancing toward 75/75 while maintaining the 150-case source-stratum quotas.
+- zero valid families -> source excluded;
+- one valid family -> that family is primary;
+- two valid families -> deterministic assignment balances the final cohort toward 75/75 while preserving source-stratum quotas.
 
-Optional second valid perturbations can be retained for exploratory analyses but cannot alter the primary assignment after target-model outputs exist.
+The final primary cohort must contain at least 30 sources from each family so the prespecified 30/30 physician calibration frame is feasible.
+
+No family assignment changes after target-model execution begins.
 
 ## Dataset lineage
 
-The frozen case manifest must bind:
+The frozen public manifests and private casepack bind:
 
-- source dataset and revision;
+- source dataset and immutable revision;
 - source file/corpus digest;
 - source ID;
 - source content digest;
-- perturbation version and content digest;
-- physician construct-validation decisions;
+- perturbation family/version/content digest;
+- construct reviewer assignment and decision;
 - primary perturbation assignment;
-- exclusion reason if excluded.
+- deterministic selection priority;
+- exclusion/rejection state where applicable.
 
 The public manifest contains no protected benchmark text.
