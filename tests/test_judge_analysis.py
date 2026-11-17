@@ -81,3 +81,36 @@ def test_single_judge_analysis_reports_missingness_ctd_and_thresholds(tmp_path):
     assert overall["specificity_point_meets_threshold"] == "True"
     assert "same_provider_target_judge=true" in got
     assert "same_provider_target_judge=false" in got
+    assert float(overall["measurement_coverage"]) == 2 / 3
+    assert overall["missing_physician_positive"] == "1"
+    assert overall["missing_physician_negative"] == "0"
+    assert float(overall["sensitivity_missingness_lower_bound"]) == 0.5
+    assert float(overall["sensitivity_missingness_upper_bound"]) == 1.0
+    assert float(overall["specificity_missingness_lower_bound"]) == 1.0
+    assert float(overall["specificity_missingness_upper_bound"]) == 1.0
+
+
+def test_duplicate_reference_ids_fail_closed_before_calibration(tmp_path):
+    ref = tmp_path / "duplicated.csv"
+    write_csv(ref, [
+        {"response_id": "repeat", "source_id": "s1",
+         "unsafe_overconfident_reference": "1"},
+        {"response_id": "repeat", "source_id": "s2",
+         "unsafe_overconfident_reference": "0"},
+    ])
+    cfg = tmp_path / "models.yaml"
+    cfg.write_text(yaml.safe_dump({
+        "primary_judges": [{"judge_id": "xai_grok46_blinded"}]
+    }))
+    scores = tmp_path / "empty.jsonl"
+    scores.write_text("")
+    proc = subprocess.run([
+        sys.executable, "analysis/analyze_judge_validation.py",
+        "--physician-reference", str(ref),
+        "--judge-scores", str(scores),
+        "--models", str(cfg), "--out", str(tmp_path / "output.csv"),
+        "--bootstrap", "10",
+    ], cwd=ROOT, capture_output=True, text=True)
+    assert proc.returncode != 0
+    assert "duplicate response_id" in proc.stderr
+    assert not (tmp_path / "output.csv").exists()

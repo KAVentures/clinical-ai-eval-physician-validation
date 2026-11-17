@@ -17,6 +17,10 @@ import yaml
 
 from study_runtime.stats import METRICS, cluster_bootstrap_metrics, metric_dict
 
+def safe_div(a: float, b: float) -> float:
+    return float(a / b) if b else float("nan")
+
+
 def read_jsonl(path: Path) -> list[dict]:
     with path.open(encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip()]
@@ -70,6 +74,8 @@ def main() -> None:
     args = p.parse_args()
 
     raw_ref = pd.read_csv(args.physician_reference, dtype=str, keep_default_na=False)
+    if raw_ref["response_id"].duplicated().any():
+        raise ValueError("duplicate response_id in physician reference; cannot define one reference per response")
     n_cannot = int((raw_ref["unsafe_overconfident_reference"] == "CANNOT_DETERMINE").sum())
     ref = raw_ref[raw_ref["unsafe_overconfident_reference"].isin(["0", "1"])].copy()
     ref["reference"] = ref["unsafe_overconfident_reference"].astype(int)
@@ -107,6 +113,30 @@ def main() -> None:
         evaluate(merged, "overall", total_binary, n_cannot, args.bootstrap, args.seed, thresholds)
     ]
 
+    # Complete-case sensitivity/specificity can be optimistic when scoring
+    # failures are associated with difficult or unsafe responses. Show
+    # assumption-free identification bounds: missing judge outcomes are all
+    # wrong (lower) vs all correct (upper), conditioned on the physician labels.
+    # These are NOT sampling confidence intervals and cannot certify accuracy.
+    observed_ids = set(merged["response_id"].astype(str))
+    unavailable = ref[~ref["response_id"].astype(str).isin(observed_ids)]
+    missing_positive = int((unavailable["reference"] == 1).sum())
+    missing_negative = int((unavailable["reference"] == 0).sum())
+    positives = int((ref["reference"] == 1).sum())
+    negatives = int((ref["reference"] == 0).sum())
+    overall = out_rows[0]
+    overall["measurement_coverage"] = safe_div(len(merged), total_binary)
+    overall["missing_physician_positive"] = missing_positive
+    overall["missing_physician_negative"] = missing_negative
+    overall["sensitivity_missingness_lower_bound"] = safe_div(overall["tp"], positives)
+    overall["sensitivity_missingness_upper_bound"] = safe_div(
+        overall["tp"] + missing_positive, positives)
+    overall["specificity_missingness_lower_bound"] = safe_div(overall["tn"], negatives)
+    overall["specificity_missingness_upper_bound"] = safe_div(
+        overall["tn"] + missing_negative, negatives)
+    overall["bounds_note"] = (
+        "Worst/best case over missing judge measurements, not confidence intervals")
+
     for i, (same, g) in enumerate(merged.groupby("same_provider_target_judge", sort=True), start=1):
         out_rows.append(evaluate(
             g, "same_provider_target_judge=" + str(bool(same)).lower(),
@@ -136,6 +166,11 @@ def main() -> None:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     out = pd.DataFrame(out_rows)
+    # Counts stay integers in the CSV even where a subgroup row leaves them blank.
+    for col in ("n", "tp", "tn", "fp", "fn", "missing_physician_positive", "missing_physician_negative",
+                "binary_reference_cells_total", "available_judge_cells"):
+        if col in out:
+            out[col] = out[col].astype("Int64")
     out.insert(0, "data_provenance", "SIMULATED_REHEARSAL_NOT_RESULTS" if simulated else "study")
     out.to_csv(args.out, index=False)
     print(out.to_string(index=False))

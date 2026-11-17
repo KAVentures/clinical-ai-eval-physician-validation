@@ -30,7 +30,7 @@ Prospective framework-validation study using a 150-source physician-validated He
    - construct validity of the preconstructed qualification-study manifestation path;
    - criterion validity of automated judging against physicians;
    - reliability across evaluator/provider conditions;
-   - actionability of disagreement-based defer-to-human logic;
+   - explicit independent physician review, indeterminate reference ratings and incomplete automated measurements;
    - external robustness on an independent clinical source cohort.
 7. Target-model behavior is a secondary application used to exercise the framework, not the primary scientific object.
 
@@ -42,7 +42,7 @@ Describe the prospective validation of the pinned Clinical-AI-Eval framework and
 - preconstructed family-manifest path -> construct validity;
 - automated judge layer -> criterion validity versus physicians;
 - same-provider Grok-target versus other-provider scoring -> evaluator robustness;
-- unanimity/disagreement routing -> actionability and safe defer-to-human coverage;
+- blinded cross-fitted physician review -> reference reliability, consensus and explicit missingness accounting;
 - Real-POCQi -> external robustness;
 - target-model comparisons -> secondary application of the validated measurement system.
 
@@ -304,11 +304,8 @@ Report family-specific effects and the prespecified GEE interaction.
 ### Judge/provider effects
 Report Grok-4.6 judge performance on Grok target responses versus non-Grok target responses and by target provider.
 
-### Cueing
-
-
 ### Automated scoring coverage
-Report successful Grok-4.6 measurement coverage, missing/failed measurements, sensitivity, specificity and error among available automated measurements. Do not create a post-hoc self-confidence defer threshold.
+Report successful Grok-4.6 measurement coverage, missing/failed measurements, sensitivity, specificity, missing counts by physician-reference class, and conservative worst/best-case missingness bounds alongside complete-case estimates. These bounds are not confidence intervals. Do not create a post-hoc self-confidence defer threshold.
 ### Model/API failure accounting
 Report target model_output_failure separately.
 
@@ -328,7 +325,7 @@ Interpret the results first as validation of Clinical-AI-Eval:
 1. **construct validity** — are the framework's stressors clinically real?
 2. **criterion validity** — can the automated layer reproduce physician judgments within a measured error profile?
 3. **reliability** — are conclusions stable enough across judge/provider conditions?
-4. **actionability** — does defer-to-human routing reduce automated error at useful coverage?
+4. **operational reliability** — are judge failures, indeterminate physician ratings and unresolved review disagreements preserved rather than counted as safe?
 5. **external robustness** — do these findings reproduce on Real-POCQi?
 6. **secondary target-model findings** — what the framework reveals about GPT/Claude/Gemini/Grok.
 
@@ -340,7 +337,7 @@ Discuss HealthBench/HealthBench Professional, Real-POCQi, clinical LLM-as-judge 
 Do not claim the study creates a universal benchmark or regulatory standard.
 
 ### Practical implications
-Potential use as a regression/stress-testing layer is justified only to the extent supported by the measured judge error profile and defer-to-human policy.
+Potential use as a regression/stress-testing layer is justified only to the extent supported by the measured judge error profile and independent human-review policy. The study does not validate an unattended clinical safety gate.
 
 ### Limitations
 Prespecified limitations:
@@ -352,9 +349,12 @@ Prespecified limitations:
 - only three physicians contribute;
 - post-response construct reliability is assessed only on a 30-case subset;
 - model/API behavior is version-specific;
+- the primary criterion-validation sample has only 60 independent source-case clusters despite 480 response cells;
+- 80% sensitivity/specificity point thresholds are exploratory calibration milestones, not autonomous screening or procurement acceptance bars;
 - public benchmark contamination may affect target behavior;
 - judge calibration is endpoint- and prevalence-dependent;
 - Real-POCQi remains a curated public dataset;
+- external-dataset replication by the same team is not independent organisational replication;
 - no patient outcomes are measured.
 
 ## Conclusion
